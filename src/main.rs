@@ -1,8 +1,9 @@
 use anyhow::Result;
 use clap::{Parser, ValueEnum};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use sysinfo::System;
 use tracing::{info, warn};
 
@@ -46,6 +47,26 @@ struct HardwareInfo {
     logical_cores: usize,
     total_memory_gb: f64,
     gpus: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChallengeResponse {
+    challenge: String,
+    difficulty: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct ShareRequest {
+    challenge: String,
+    nonce: u64,
+    hash: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ShareResponse {
+    accepted: bool,
+    message: String,
+    total_accepted_shares: u64,
 }
 
 fn default_threads() -> usize {
@@ -128,7 +149,7 @@ fn detect_gpus() -> Vec<String> {
     Vec::new()
 }
 
-async fn check_server(server: &str) {
+async fn check_server(server: &str) -> bool {
     let url = format!("{}/health", server.trim_end_matches('/'));
 
     let client = match reqwest::Client::builder()
@@ -138,23 +159,133 @@ async fn check_server(server: &str) {
         Ok(client) => client,
         Err(error) => {
             warn!("Could not create HTTP client: {error}");
-            return;
+            return false;
         }
     };
 
     match client.get(url).send().await {
         Ok(response) if response.status().is_success() => {
             info!("Mining server: ONLINE");
+            true
         }
 
         Ok(response) => {
             warn!("Mining server returned HTTP {}", response.status());
+            false
         }
 
         Err(_) => {
-            warn!("Mining server: OFFLINE / not configured yet");
+            warn!("Mining server: OFFLINE");
+            false
         }
     }
+}
+
+async fn mine_test_share(server: &str) -> Result<()> {
+    let client = reqwest::Client::new();
+
+    let challenge_url =
+        format!("{}/challenge", server.trim_end_matches('/'));
+
+    let challenge: ChallengeResponse = client
+        .get(challenge_url)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+
+    println!();
+    println!("==============================================");
+    println!("         MINING CHALLENGE RECEIVED");
+    println!("==============================================");
+    println!("Challenge: {}", challenge.challenge);
+    println!("Difficulty: {}", challenge.difficulty);
+    println!();
+
+    let target = "0".repeat(challenge.difficulty);
+
+    let start = Instant::now();
+    let mut nonce: u64 = 0;
+
+    println!("Mining started...");
+
+    loop {
+        let input = format!("{}:{}", challenge.challenge, nonce);
+
+        let mut hasher = Sha256::new();
+        hasher.update(input.as_bytes());
+
+        let result = hasher.finalize();
+        let hash = hex::encode(result);
+
+        if hash.starts_with(&target) {
+            let elapsed = start.elapsed().as_secs_f64();
+            let hashes = nonce + 1;
+            let hashrate = hashes as f64 / elapsed.max(0.001);
+
+            println!();
+            println!("==============================================");
+            println!("              VALID SHARE FOUND");
+            println!("==============================================");
+            println!("Nonce: {}", nonce);
+            println!("Hash: {}", hash);
+            println!("Hashes tested: {}", hashes);
+            println!("Time: {:.2} seconds", elapsed);
+            println!("Hashrate: {:.2} H/s", hashrate);
+
+            let share = ShareRequest {
+                challenge: challenge.challenge.clone(),
+                nonce,
+                hash,
+            };
+
+            let share_url =
+                format!("{}/share", server.trim_end_matches('/'));
+
+            let response: ShareResponse = client
+                .post(share_url)
+                .json(&share)
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+
+            println!();
+            println!("==============================================");
+            println!("              SERVER RESPONSE");
+            println!("==============================================");
+            println!("Accepted: {}", response.accepted);
+            println!("Message: {}", response.message);
+            println!(
+                "Total accepted shares: {}",
+                response.total_accepted_shares
+            );
+
+            if response.accepted {
+                println!();
+                println!("*** FIRST EUREKA NEXUS SHARE ACCEPTED ***");
+            }
+
+            break;
+        }
+
+        nonce = nonce.wrapping_add(1);
+
+        if nonce % 1_000_000 == 0 {
+            let elapsed = start.elapsed().as_secs_f64();
+            let hashrate = nonce as f64 / elapsed.max(0.001);
+
+            println!(
+                "Mining... {:>10} hashes | {:>10.0} H/s",
+                nonce,
+                hashrate
+            );
+        }
+    }
+
+    Ok(())
 }
 
 #[tokio::main]
@@ -209,12 +340,17 @@ async fn main() -> Result<()> {
     println!("Server: {}", args.server);
     println!();
 
-    check_server(&args.server).await;
+    let server_online = check_server(&args.server).await;
+
+    if !server_online {
+        anyhow::bail!("Mining server is offline.");
+    }
 
     println!();
-    println!("Eureka Miner bootstrap initialized successfully.");
-    println!("CPU/GPU mining engines will be connected in the next stage.");
-    println!();
+    println!("Eureka Miner initialized successfully.");
+    println!("Starting Eureka Nexus PoW protocol test...");
+
+    mine_test_share(&args.server).await?;
 
     Ok(())
 }
