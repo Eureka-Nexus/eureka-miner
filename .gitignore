@@ -1,0 +1,38 @@
+/target/
+/data/
+/logs/
+/backups/
+
+*.log
+*.pid
+*.bak
+*.old
+*.before_*
+
+miner-config.json
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+
+/engines/kawpow/.download/
+/engines/kawpow/kawpowminer
+/engines/kawpow/kawpowminer.exe
+
+.DS_Store
+Thumbs.db
+
+# Third-party mining engine binaries
+/engines/kawpow/.download/
+/engines/kawpow/kawpowminer
+/engines/kawpow/kawpowminer.exe
+/engines/kawpow/*.dll
+
+# Release output
+/dist/
+
+# Windows build output
+/target-windows/

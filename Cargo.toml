@@ -1,0 +1,28 @@
+[package]
+name = "eureka-nexus-miner-official"
+version = "1.0.0"
+edition = "2021"
+authors = ["Eureka Nexus"]
+description = "Eureka Nexus Miner Official 1.0 - BNB Smart Chain client and mining dashboard"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+axum = "0.7"
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5"
+hex = "0.4"
+mime_guess = "2"
+num_cpus = "1"
+parking_lot = "0.12"
+randomx-rs = "1.6.0"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
+rust-embed = "8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sysinfo = "0.31"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "net"] }
+tower-http = { version = "0.6", features = ["cors"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+webbrowser = "1"

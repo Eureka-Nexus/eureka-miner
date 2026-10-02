@@ -1,0 +1,9 @@
+Third-party GPU engine: RavenCommunity/kawpowminer 1.2.4
+Source: https://github.com/RavenCommunity/kawpowminer
+Release: https://github.com/RavenCommunity/kawpowminer/releases/tag/1.2.4
+License: GNU General Public License v3.0 (GPL-3.0)
+
+This executable is a separate upstream program launched as a child process by
+Eureka Nexus Miner Official 1.0. It is not linked into the Eureka Nexus Rust
+binary. The upstream archive and checksum are downloaded directly from the
+RavenCommunity GitHub release.

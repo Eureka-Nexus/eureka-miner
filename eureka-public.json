@@ -1,0 +1,29 @@
+{
+  "project": "Eureka Nexus",
+  "miner": "Eureka Nexus Miner Official 1.0",
+  "network": "BNB Smart Chain Mainnet",
+  "chain_id": 56,
+  "native_currency": "BNB",
+  "token": {
+    "name": "Eureka Nexus",
+    "symbol": "EKNX",
+    "decimals": 18,
+    "contract": "0xF54913A8d5E2AEBD0B62c6411cCf1b5B4aB069c9",
+    "bscscan": "https://bscscan.com/token/0xF54913A8d5E2AEBD0B62c6411cCf1b5B4aB069c9"
+  },
+  "genesis_market": {
+    "contract": "0x837dBE1D3b67e8315127c36a119E163e713ee73D",
+    "bscscan": "https://bscscan.com/address/0x837dBE1D3b67e8315127c36a119E163e713ee73D"
+  },
+  "pool": {
+    "url": "https://pool.eurekanexus.pt",
+    "gpu_stratum": "pool.eurekanexus.pt:3333",
+    "fee_percent": 1,
+    "fee_bps": 100,
+    "fee_wallet": "0x42f58c8a09bce3a00faf553aac60b0daf320858b"
+  },
+  "algorithms": {
+    "gpu": "KAWPOW-EUREKA-V1",
+    "cpu": "RANDOMX-EUREKA-V1"
+  }
+}
