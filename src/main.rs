@@ -2,7 +2,8 @@ use anyhow::{anyhow, Context, Result};
 use axum::{
     body::Body,
     extract::{Path, State},
-    http::{header, StatusCode, Uri},
+    http::{header, HeaderMap, Request, StatusCode, Uri},
+    middleware::{self, Next},
     response::Response,
     routing::{get, post},
     Json, Router,
@@ -29,7 +30,6 @@ use std::{
 };
 use sysinfo::System;
 use tokio::time::sleep;
-use tower_http::cors::CorsLayer;
 use tracing::{info, warn};
 
 const APP_NAME: &str = "Eureka Nexus Miner Official 1.0";
@@ -1503,8 +1503,55 @@ async fn index_handler(uri: Uri) -> Response {
     }
 }
 
+fn dashboard_request_allowed(headers: &HeaderMap, port: u16) -> bool {
+    let host = headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if host != format!("127.0.0.1:{port}") && host != format!("localhost:{port}") {
+        return false;
+    }
+    if let Some(origin) = headers.get(header::ORIGIN) {
+        if origin.to_str().ok() != Some(format!("http://{host}").as_str()) {
+            return false;
+        }
+    }
+    !matches!(
+        headers.get("sec-fetch-site").and_then(|v| v.to_str().ok()),
+        Some("cross-site")
+    )
+}
+
+async fn protect_dashboard(
+    State(port): State<u16>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    if !dashboard_request_allowed(request.headers(), port) {
+        return Response::builder()
+            .status(StatusCode::FORBIDDEN)
+            .body(Body::from(
+                "Dashboard requests must come from its local origin",
+            ))
+            .unwrap();
+    }
+    next.run(request).await
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
+        println!("Eureka Nexus Miner {}\nUsage: eureka-nexus-miner-official [--help | --version]\nRun without arguments to open the local dashboard. Mining starts only from the dashboard.\nLinux config: $XDG_CONFIG_HOME/EurekaNexus/MinerOfficial1/miner-config.json (default ~/.config).\nWindows config: %APPDATA%\\EurekaNexus\\MinerOfficial1\\miner-config.json.", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+    if args.len() == 1 && (args[0] == "--version" || args[0] == "-V") {
+        println!("{}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+    if !args.is_empty() {
+        return Err(anyhow!("Unknown arguments; use --help"));
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -1532,7 +1579,7 @@ async fn main() -> Result<()> {
         .route("/api/stop", post(api_stop))
         .route("/api/claim/:day", get(api_claim_info))
         .fallback(get(index_handler))
-        .layer(CorsLayer::permissive())
+        .layer(middleware::from_fn_with_state(port, protect_dashboard))
         .with_state(state.clone());
 
     tokio::spawn(telemetry_loop(state.clone()));
@@ -1587,5 +1634,28 @@ mod thermal_safety_tests {
         assert!(gpu_restart_blocked(true, 0.0));
         assert!(!gpu_restart_blocked(true, 79.9));
         assert!(!gpu_restart_blocked(false, 90.0));
+    }
+}
+
+#[cfg(test)]
+mod dashboard_origin_tests {
+    use super::*;
+    #[test]
+    fn rejects_remote_origins_and_rebinding_hosts() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, "127.0.0.1:8077".parse().unwrap());
+        assert!(dashboard_request_allowed(&headers, 8077));
+        headers.insert(header::ORIGIN, "https://untrusted.example".parse().unwrap());
+        assert!(!dashboard_request_allowed(&headers, 8077));
+        headers.insert(header::ORIGIN, "null".parse().unwrap());
+        assert!(!dashboard_request_allowed(&headers, 8077));
+        headers.insert(header::ORIGIN, "http://127.0.0.1:8077".parse().unwrap());
+        assert!(dashboard_request_allowed(&headers, 8077));
+        headers.remove(header::ORIGIN);
+        headers.insert(header::HOST, "untrusted.example:8077".parse().unwrap());
+        assert!(!dashboard_request_allowed(&headers, 8077));
+        headers.insert(header::HOST, "localhost:8077".parse().unwrap());
+        headers.insert("sec-fetch-site", "cross-site".parse().unwrap());
+        assert!(!dashboard_request_allowed(&headers, 8077));
     }
 }

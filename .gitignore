@@ -26,9 +26,6 @@ miner-config.json
 Thumbs.db
 
 # Third-party mining engine binaries
-/engines/kawpow/.download/
-/engines/kawpow/kawpowminer
-/engines/kawpow/kawpowminer.exe
 /engines/kawpow/*.dll
 
 # Release output

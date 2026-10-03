@@ -1,7 +1,9 @@
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-$PackageName = "Eureka-Nexus-Miner-Official-1.0-Windows-x86_64"
+$Version = (Get-Content (Join-Path $PSScriptRoot "VERSION") -Raw).Trim()
+if ($Version -notmatch "^\d+\.\d+\.\d+$") { throw "Invalid VERSION" }
+$PackageName = "Eureka-Nexus-Miner-Official-$Version-Windows-x86_64"
 $TargetDir = Join-Path $PSScriptRoot "target-windows"
 $DistDir = Join-Path $PSScriptRoot "dist"
 $PackageDir = Join-Path $DistDir $PackageName
@@ -11,7 +13,7 @@ $ZipHashPath = Join-Path $DistDir "$PackageName.zip.sha256.txt"
 $env:CARGO_TARGET_DIR = $TargetDir
 
 Write-Host "=== Building Eureka Nexus Miner Official 1.0 ===" -ForegroundColor Cyan
-cargo build --release --bin eureka-nexus-miner-official
+cargo build --release --locked --bin eureka-nexus-miner-official
 if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
 
 $Exe = Join-Path $TargetDir "release\eureka-nexus-miner-official.exe"
@@ -19,14 +21,20 @@ if (-not (Test-Path $Exe)) {
     throw "Windows executable not found: $Exe"
 }
 
-if (Test-Path $PackageDir) {
-    Remove-Item $PackageDir -Recurse -Force
+$ResolvedDist = [IO.Path]::GetFullPath($DistDir).TrimEnd('\') + '\'
+foreach ($Candidate in @($PackageDir, $ZipPath, $ZipHashPath)) {
+    if (-not [IO.Path]::GetFullPath($Candidate).StartsWith($ResolvedDist, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Release output must stay inside dist"
+    }
+}
+if (Test-Path -LiteralPath $PackageDir) {
+    Remove-Item -LiteralPath $PackageDir -Recurse -Force
 }
 if (Test-Path $ZipPath) {
-    Remove-Item $ZipPath -Force
+    Remove-Item -LiteralPath $ZipPath -Force
 }
 if (Test-Path $ZipHashPath) {
-    Remove-Item $ZipHashPath -Force
+    Remove-Item -LiteralPath $ZipHashPath -Force
 }
 
 New-Item -ItemType Directory -Force $PackageDir | Out-Null
@@ -37,6 +45,7 @@ Copy-Item $Exe (Join-Path $PackageDir "eureka-nexus-miner-official.exe") -Force
 
 $Files = @(
     "README.md",
+    "CHANGELOG.md",
     "LICENSE",
     "SECURITY.md",
     "THIRD_PARTY_NOTICES.md",

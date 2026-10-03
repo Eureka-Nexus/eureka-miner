@@ -1,4 +1,4 @@
-# Eureka Nexus Miner Official 1.0
+# Eureka Nexus Miner Official 1.0.1
 
 Official CPU/GPU miner for the Eureka Nexus (EKNX) ecosystem on BNB Smart Chain Mainnet.
 
@@ -13,6 +13,40 @@ Official CPU/GPU miner for the Eureka Nexus (EKNX) ecosystem on BNB Smart Chain 
 - Genesis Market: `0x837dBE1D3b67e8315127c36a119E163e713ee73D`
 - Official pool: `https://pool.eurekanexus.pt`
 - GPU Stratum: `pool.eurekanexus.pt:3333`
+
+## Download and install
+
+Download the package for your operating system from [GitHub Releases](https://github.com/Eureka-Nexus/eureka-miner/releases/latest). Version 1.0.1 supersedes 1.0.0. Download `SHA256SUMS.txt` as well and compare the archive SHA-256 before extracting it.
+
+Linux x86-64:
+
+```bash
+sha256sum -c SHA256SUMS.txt --ignore-missing
+tar -xzf Eureka-Nexus-Miner-Official-1.0.1-Linux-x86_64.tar.gz
+cd Eureka-Nexus-Miner-Official-1.0.1-Linux-x86_64
+sha256sum -c SHA256SUMS.txt
+./eureka-nexus-miner-official --version
+./eureka-nexus-miner-official
+```
+
+Windows x86-64: compare `Get-FileHash <downloaded.zip> -Algorithm SHA256` with the matching entry in the downloaded checksums, extract the ZIP, then run `eureka-nexus-miner-official.exe` from the extracted folder. Do not run directly inside the ZIP preview.
+
+Open `http://127.0.0.1:8077`, configure your public BSC wallet and select CPU, GPU or BOTH. No mining begins merely by opening the dashboard. The on-chain mining activation gate must be open before mining can start.
+
+### GPU engine
+
+KAWPOW is a separate download, not bundled in the release. From the extracted folder run `bash INSTALL_KAWPOW_ENGINE_LINUX.sh` on Linux or `./INSTALL_KAWPOW_ENGINE_WINDOWS.ps1` in PowerShell. The installer downloads upstream RavenCommunity kawpowminer 1.2.4 and verifies its published SHA-256. Compatible GPU drivers and runtime libraries are still required. Hardware support must be tested on the intended GPU; a successful download is not a hardware benchmark.
+
+CPU mode uses the integrated RandomX engine and does not require that GPU download.
+
+### Configuration and troubleshooting
+
+Linux configuration: `${XDG_CONFIG_HOME:-$HOME/.config}/EurekaNexus/MinerOfficial1/miner-config.json`.
+Windows configuration: `%APPDATA%\EurekaNexus\MinerOfficial1\miner-config.json`.
+
+If port 8077 is occupied, identify the existing process before stopping it. For an isolated Linux test, set `XDG_CONFIG_HOME` to a temporary directory containing `EurekaNexus/MinerOfficial1/miner-config.json` with `dashboard_port` set to another loopback port, `open_dashboard` false and `auto_start` false. Do not change another instance's configuration.
+
+Version 1.0.1 supports `--help` and `--version` without starting the dashboard. Version 1.0.0 did not support this behavior. Configuration `auto_start` does not start mining automatically in these versions.
 
 ## Mining
 
@@ -78,7 +112,7 @@ The interface can request a compatible browser wallet to add:
 
 Linux:
 
-`cargo build --release --bin eureka-nexus-miner-official`
+`cargo test --locked && cargo build --release --locked --bin eureka-nexus-miner-official`
 
 Windows:
 
@@ -93,3 +127,7 @@ RandomX and randomx-rs use the BSD 3-Clause License.
 RavenCommunity kawpowminer uses GPL-3.0 and remains a separate third-party executable.
 
 See LICENSE, LICENSES and THIRD_PARTY_NOTICES.md.
+
+## Release verification
+
+See [CHANGELOG.md](CHANGELOG.md) for version changes and the [network launch checklist](https://github.com/Eureka-Nexus/eureka-docs/blob/main/LAUNCH_CHECKLIST.md) for operational gates. Published packages have SHA-256 checksums; they are not represented as code-signed binaries.

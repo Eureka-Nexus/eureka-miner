@@ -1,6 +1,6 @@
 [package]
 name = "eureka-nexus-miner-official"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 authors = ["Eureka Nexus"]
 description = "Eureka Nexus Miner Official 1.0 - BNB Smart Chain client and mining dashboard"
