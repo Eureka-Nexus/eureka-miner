@@ -12,13 +12,18 @@ $ZipHashPath = Join-Path $DistDir "$PackageName.zip.sha256.txt"
 
 $env:CARGO_TARGET_DIR = $TargetDir
 
-Write-Host "=== Building Eureka Nexus Miner Official 1.0 ===" -ForegroundColor Cyan
-cargo build --release --locked --bin eureka-nexus-miner-official
+Write-Host "=== Building Eureka Nexus Miner Official $Version ===" -ForegroundColor Cyan
+cargo build --release --locked --bin eureka-nexus-miner-official --bin EurekaNexusMiner
 if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
 
-$Exe = Join-Path $TargetDir "release\eureka-nexus-miner-official.exe"
-if (-not (Test-Path $Exe)) {
-    throw "Windows executable not found: $Exe"
+$BackendExe = Join-Path $TargetDir "release\eureka-nexus-miner-official.exe"
+$DesktopExe = Join-Path $TargetDir "release\EurekaNexusMiner.exe"
+
+if (-not (Test-Path $BackendExe)) {
+    throw "Windows backend executable not found: $BackendExe"
+}
+if (-not (Test-Path $DesktopExe)) {
+    throw "Windows desktop executable not found: $DesktopExe"
 }
 
 $ResolvedDist = [IO.Path]::GetFullPath($DistDir).TrimEnd('\') + '\'
@@ -41,7 +46,8 @@ New-Item -ItemType Directory -Force $PackageDir | Out-Null
 New-Item -ItemType Directory -Force (Join-Path $PackageDir "LICENSES") | Out-Null
 New-Item -ItemType Directory -Force (Join-Path $PackageDir "engines\kawpow") | Out-Null
 
-Copy-Item $Exe (Join-Path $PackageDir "eureka-nexus-miner-official.exe") -Force
+Copy-Item $BackendExe (Join-Path $PackageDir "eureka-nexus-miner-official.exe") -Force
+Copy-Item $DesktopExe (Join-Path $PackageDir "EurekaNexusMiner.exe") -Force
 
 $Files = @(
     "README.md",

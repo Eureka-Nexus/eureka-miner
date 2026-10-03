@@ -16,7 +16,7 @@ Official CPU/GPU miner for the Eureka Nexus (EKNX) ecosystem on BNB Smart Chain 
 
 ## Download and install
 
-Download the package for your operating system from [GitHub Releases](https://github.com/Eureka-Nexus/eureka-miner/releases/latest). Version 1.0.1 supersedes 1.0.0. Download `SHA256SUMS.txt` as well and compare the archive SHA-256 before extracting it.
+Download the package for your operating system from [GitHub Releases](https://github.com/Eureka-Nexus/eureka-miner/releases/latest). Version 1.1.0 is the current Windows desktop release. Download `SHA256SUMS.txt` as well and compare the archive SHA-256 before extracting it.
 
 Linux x86-64:
 
@@ -29,13 +29,13 @@ sha256sum -c SHA256SUMS.txt
 ./eureka-nexus-miner-official
 ```
 
-Windows x86-64: compare `Get-FileHash <downloaded.zip> -Algorithm SHA256` with the matching entry in the downloaded checksums, extract the ZIP, then run `eureka-nexus-miner-official.exe` from the extracted folder. Do not run directly inside the ZIP preview.
+Windows x86-64: download and run `Eureka-Nexus-Miner-Setup-1.1.0.exe`. The installer creates the Eureka Nexus Miner application and shortcuts automatically.
 
 Open `http://127.0.0.1:8077`, configure your public BSC wallet and select CPU, GPU or BOTH. No mining begins merely by opening the dashboard. The on-chain mining activation gate must be open before mining can start.
 
 ### GPU engine
 
-KAWPOW is a separate download, not bundled in the release. From the extracted folder run `bash INSTALL_KAWPOW_ENGINE_LINUX.sh` on Linux or `./INSTALL_KAWPOW_ENGINE_WINDOWS.ps1` in PowerShell. The installer downloads upstream RavenCommunity kawpowminer 1.2.4 and verifies its published SHA-256. Compatible GPU drivers and runtime libraries are still required. Hardware support must be tested on the intended GPU; a successful download is not a hardware benchmark.
+The Windows 1.1.0 installer includes the required KAWPOW runtime files so normal users do not need PowerShell or a separate KAWPOW installation step. RavenCommunity kawpowminer remains a separate third-party GPL-3.0 component and its license/notices are included. Compatible GPU drivers are still required.
 
 CPU mode uses the integrated RandomX engine and does not require that GPU download.
 

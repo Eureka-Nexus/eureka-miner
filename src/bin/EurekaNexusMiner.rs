@@ -249,6 +249,13 @@ mod app {
 #[cfg(target_os = "windows")]
 fn main() {
     if let Err(error) = app::run() {
-        eprintln!("Eureka Nexus Miner error: {error:#}");
+        let msg = format!("Eureka Nexus Miner error:\n{error:#}\n");
+
+        let log_path = std::env::temp_dir()
+            .join("EurekaNexusMiner-startup.log");
+
+        let _ = std::fs::write(&log_path, &msg);
+
+        eprintln!("{msg}");
     }
 }
