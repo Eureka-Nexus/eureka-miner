@@ -26,3 +26,8 @@ tower-http = { version = "0.6", features = ["cors"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 webbrowser = "1"
+
+[target.'cfg(windows)'.dependencies]
+tao = "0.37"
+wry = "0.57"
+image = { version = "0.25", default-features = false, features = ["png"] }

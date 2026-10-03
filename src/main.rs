@@ -1592,7 +1592,11 @@ async fn main() -> Result<()> {
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     info!("{} dashboard: http://{}", APP_NAME, addr);
-    if cfg.open_dashboard {
+    let desktop_mode = std::env::var("EUREKA_DESKTOP_MODE")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+
+    if cfg.open_dashboard && !desktop_mode {
         let url = format!("http://127.0.0.1:{port}");
         tokio::spawn(async move {
             sleep(Duration::from_millis(700)).await;
