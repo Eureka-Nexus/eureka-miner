@@ -26,7 +26,8 @@ WizardStyle=modern
 
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-PrivilegesRequired=admin
+PrivilegesRequired=lowest
+PrivilegesRequiredOverridesAllowed=dialog commandline
 
 CloseApplications=yes
 RestartApplications=no
@@ -44,6 +45,42 @@ Source: "..\web\branding\eureka_app_icon.ico"; DestDir: "{app}"; DestName: "eure
 [Icons]
 Name: "{autoprograms}\Eureka Nexus Miner"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\eureka_app_icon.ico"
 Name: "{autodesktop}\Eureka Nexus Miner"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\eureka_app_icon.ico"
+
+[Code]
+var
+  EngineInstallFailed: Boolean;
+
+function GetCustomSetupExitCode(): Integer;
+begin
+  Result := 0;
+  if EngineInstallFailed then Result := 1;
+end;
+
+function KawpowMissing(): Boolean;
+begin
+  Result :=
+    (not FileExists(ExpandConstant('{app}\engines\kawpow\kawpowminer.exe'))) or
+    (not FileExists(ExpandConstant('{app}\engines\kawpow\nvrtc64_112_0.dll'))) or
+    (not FileExists(ExpandConstant('{app}\engines\kawpow\nvrtc-builtins64_112.dll')));
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+begin
+  if (CurStep = ssPostInstall) and KawpowMissing() then
+  begin
+    EngineInstallFailed := True;
+    WizardForm.StatusLabel.Caption := 'Installing verified KAWPOW GPU engine (internet required)...';
+    if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\INSTALL_KAWPOW_ENGINE_WINDOWS.ps1') + '"',
+      ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+      RaiseException('Cannot start the KAWPOW installer. Run Setup again.');
+    if (ResultCode <> 0) or KawpowMissing() then
+      RaiseException('KAWPOW installation failed. Check your internet connection and run Setup again.');
+    EngineInstallFailed := False;
+  end;
+end;
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Description: "Abrir Eureka Nexus Miner"; Flags: nowait postinstall skipifsilent

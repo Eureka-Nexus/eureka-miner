@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.0
+
+- Windows desktop application with embedded icon and version metadata.
+- Closing the desktop window stops the backend and its mining processes.
+- Setup installs official KAWPOW automatically with SHA-256 verification and reports installation failures.
+- Windows release script builds the desktop/backend, ZIP, Setup and checksum files in one invocation.
+
 ## 1.0.1
 
 - Make `--help` and `--version` exit before dashboard/network startup; reject unknown arguments.

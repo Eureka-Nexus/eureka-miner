@@ -1,4 +1,4 @@
-# Eureka Nexus Miner Official 1.0.1
+# Eureka Nexus Miner Official 1.1.0
 
 Official CPU/GPU miner for the Eureka Nexus (EKNX) ecosystem on BNB Smart Chain Mainnet.
 
@@ -16,7 +16,7 @@ Official CPU/GPU miner for the Eureka Nexus (EKNX) ecosystem on BNB Smart Chain 
 
 ## Download and install
 
-Download the package for your operating system from [GitHub Releases](https://github.com/Eureka-Nexus/eureka-miner/releases/latest). Version 1.1.0 is the current Windows desktop release. Download `SHA256SUMS.txt` as well and compare the archive SHA-256 before extracting it.
+Download the package for your operating system from [GitHub Releases](https://github.com/Eureka-Nexus/eureka-miner/releases). Version 1.1.0 is the Windows desktop release. Download its `.exe.sha256.txt` and compare the Setup SHA-256 before installing. Linux uses its separate release archive and `SHA256SUMS.txt`.
 
 Linux x86-64:
 
@@ -35,7 +35,7 @@ Open `http://127.0.0.1:8077`, configure your public BSC wallet and select CPU, G
 
 ### GPU engine
 
-The Windows 1.1.0 installer includes the required KAWPOW runtime files so normal users do not need PowerShell or a separate KAWPOW installation step. RavenCommunity kawpowminer remains a separate third-party GPL-3.0 component and its license/notices are included. Compatible GPU drivers are still required.
+The Windows 1.1.0 installer automatically downloads the official RavenCommunity kawpowminer 1.2.4 runtime and verifies its published SHA-256. Internet access is required during installation. Download or verification failures are reported by Setup; rerun Setup after correcting the connection. Normal users do not need to run PowerShell or install KAWPOW manually. kawpowminer remains a separate third-party GPL-3.0 component. Compatible GPU drivers are still required.
 
 CPU mode uses the integrated RandomX engine and does not require that GPU download.
 

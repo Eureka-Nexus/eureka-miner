@@ -98,4 +98,18 @@ Write-Host $ZipPath
 Write-Host "ZIP SHA256:"
 Write-Host $ZipHash
 Write-Host ""
-Write-Host "KAWPOW is not bundled. Users install it with INSTALL_KAWPOW_ENGINE_WINDOWS.ps1."
+Write-Host "The Windows Setup installs verified KAWPOW automatically (internet required)."
+
+$IsccCandidates = @(
+    (Join-Path ${env:LOCALAPPDATA} "Programs\Inno Setup 6\ISCC.exe"),
+    (Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe")
+)
+$Iscc = $IsccCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+if (-not $Iscc) { throw "Inno Setup 6 compiler not found" }
+& $Iscc (Join-Path $PSScriptRoot "installer\Eureka-Nexus-Miner-$Version.iss")
+if ($LASTEXITCODE -ne 0) { throw "Windows Setup compilation failed" }
+$SetupName = "Eureka-Nexus-Miner-Setup-$Version.exe"
+$SetupPath = Join-Path $DistDir "installer\$SetupName"
+$SetupHash = (Get-FileHash -LiteralPath $SetupPath -Algorithm SHA256).Hash.ToLowerInvariant()
+"$SetupHash  $SetupName" | Set-Content "$SetupPath.sha256.txt" -Encoding ascii
+Write-Host "Setup and SHA-256 created: $SetupPath"

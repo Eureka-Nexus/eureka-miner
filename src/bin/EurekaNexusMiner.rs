@@ -15,6 +15,7 @@ mod app {
         io::Write,
         net::{TcpListener, TcpStream},
         os::windows::process::CommandExt,
+        os::windows::io::AsRawHandle,
         path::PathBuf,
         process::{Child, Command, Stdio},
         thread,
@@ -29,6 +30,42 @@ mod app {
     };
 
     use wry::WebViewBuilder;
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, HANDLE},
+        System::JobObjects::{AssignProcessToJobObject, CreateJobObjectW,
+            SetInformationJobObject, TerminateJobObject, JobObjectExtendedLimitInformation,
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE},
+    };
+
+    struct MiningJob(HANDLE);
+
+    impl MiningJob {
+        fn new() -> Result<Self> {
+            unsafe {
+                let handle = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+                if handle.is_null() { return Err(std::io::Error::last_os_error().into()); }
+                let job = Self(handle);
+                let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+                limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                if SetInformationJobObject(handle, JobObjectExtendedLimitInformation,
+                    &limits as *const _ as *const _, std::mem::size_of_val(&limits) as u32) == 0 {
+                    return Err(std::io::Error::last_os_error().into());
+                }
+                Ok(job)
+            }
+        }
+
+        fn attach(&self, child: &Child) -> Result<()> {
+            if unsafe { AssignProcessToJobObject(self.0, child.as_raw_handle()) } == 0 {
+                return Err(std::io::Error::last_os_error().into());
+            }
+            Ok(())
+        }
+    }
+
+    impl Drop for MiningJob {
+        fn drop(&mut self) { unsafe { CloseHandle(self.0); } }
+    }
 
     const DASHBOARD_ADDR: &str = "127.0.0.1:8077";
     const DASHBOARD_URL: &str = "http://127.0.0.1:8077";
@@ -42,6 +79,7 @@ mod app {
 
     struct Backend {
         child: Child,
+        job: MiningJob,
         stopped: bool,
     }
 
@@ -51,28 +89,9 @@ mod app {
                 return;
             }
 
-            let _ = reqwest::blocking::Client::builder()
-                .timeout(Duration::from_secs(2))
-                .build()
-                .and_then(|client| {
-                    client
-                        .post(format!("{DASHBOARD_URL}/api/stop"))
-                        .send()
-                        .map(|_| ())
-                });
-
-            thread::sleep(Duration::from_millis(500));
-
-            let pid = self.child.id().to_string();
-
-            let _ = Command::new("taskkill")
-                .args(["/PID", pid.as_str(), "/T", "/F"])
-                .creation_flags(CREATE_NO_WINDOW)
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status();
-
+            // The job owns the backend and every mining child, even if HTTP is stuck.
+            unsafe { TerminateJobObject(self.job.0, 0); }
+            let _ = self.child.kill();
             let _ = self.child.wait();
             self.stopped = true;
         }
@@ -168,7 +187,8 @@ mod app {
 
         let (app_dir, backend_exe) = backend_paths()?;
 
-        let child = Command::new(&backend_exe)
+        let job = MiningJob::new().context("Cannot create mining process job")?;
+        let mut child = Command::new(&backend_exe)
             .current_dir(&app_dir)
             .env("EUREKA_DESKTOP_MODE", "1")
             .creation_flags(CREATE_NO_WINDOW)
@@ -183,8 +203,15 @@ mod app {
                 )
             })?;
 
+        if let Err(error) = job.attach(&child) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error.context("Cannot attach backend to mining process job"));
+        }
+
         let mut backend = Backend {
             child,
+            job,
             stopped: false,
         };
 
