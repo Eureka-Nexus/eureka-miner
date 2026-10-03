@@ -32,7 +32,7 @@ use sysinfo::System;
 use tokio::time::sleep;
 use tracing::{info, warn};
 
-const APP_NAME: &str = "Eureka Nexus Miner Official 1.0";
+const APP_NAME: &str = "Eureka Nexus Miner Official 1.1.0";
 const CHAIN_ID: u64 = 56;
 const NETWORK: &str = "BNB Smart Chain Mainnet";
 const EKNX: &str = "0xF54913A8d5E2AEBD0B62c6411cCf1b5B4aB069c9";
@@ -1427,7 +1427,7 @@ async fn api_start(State(state): State<AppState>) -> Result<Json<Value>, (Status
         let mut s = state.status.write();
         s.running = true;
         s.phase = "MINING · REAL KAWPOW / RANDOMX".into();
-        s.message = format!("Mining started in {mode} mode. Shares are validated by Eureka Nexus Mining Server Official 1.0.");
+        s.message = format!("Mining started in {mode} mode. Shares are validated by the Eureka Nexus Official Mining Server.");
     }
     Ok(Json(json!({"ok":true,"mode":mode,"run_id":run_id})))
 }
