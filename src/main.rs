@@ -17,7 +17,7 @@ use std::{
     collections::hash_map::DefaultHasher,
     fs::{self, OpenOptions},
     hash::{Hash, Hasher},
-    io::{BufRead, BufReader, Write},
+    io::{BufReader, Write},
     net::SocketAddr,
     path::{Path as FsPath, PathBuf},
     process::{Child, Command, Stdio},
@@ -32,7 +32,7 @@ use sysinfo::System;
 use tokio::time::sleep;
 use tracing::{info, warn};
 
-const APP_NAME: &str = "Eureka Nexus Miner Official 1.1.0";
+const APP_NAME: &str = concat!("Eureka Nexus Miner Official ", env!("CARGO_PKG_VERSION"));
 const CHAIN_ID: u64 = 56;
 const NETWORK: &str = "BNB Smart Chain Mainnet";
 const EKNX: &str = "0xF54913A8d5E2AEBD0B62c6411cCf1b5B4aB069c9";
@@ -41,6 +41,7 @@ const DEFAULT_BSC_RPC: &str = "https://bsc-dataseed.bnbchain.org";
 const DEFAULT_POOL: &str = "https://pool.eurekanexus.pt";
 const GPU_TEMP_WARN_C: f32 = 80.0;
 const GPU_TEMP_CUTOFF_C: f32 = 85.0;
+const GPU_TEMP_RESTART_C: f32 = 75.0;
 
 fn gpu_temp_warning(temp: f32) -> bool {
     temp.is_finite() && temp >= GPU_TEMP_WARN_C
@@ -51,7 +52,7 @@ fn gpu_temp_cutoff(temp: f32) -> bool {
 }
 
 fn gpu_temp_cooled(temp: f32) -> bool {
-    temp.is_finite() && temp > 0.0 && temp < GPU_TEMP_WARN_C
+    temp.is_finite() && temp > 0.0 && temp < GPU_TEMP_RESTART_C
 }
 
 fn gpu_restart_blocked(thermal_tripped: bool, temp: f32) -> bool {
@@ -196,7 +197,7 @@ impl Default for PoolSnapshot {
             epoch_seconds: 60,
             gpu_epoch_cap_eknx: "5".into(),
             cpu_epoch_cap_eknx: "0.8".into(),
-            minimum_claim_eknx: "100".into(),
+            minimum_claim_eknx: String::new(),
             pool_fee_percent: 0,
             pool_fee_bps: 0,
             pool_fee_wallet: String::new(),
@@ -793,9 +794,17 @@ fn pipe_gpu_log<R: std::io::Read + Send + 'static>(
             .append(true)
             .open("data/kawpow-engine.log");
         let log = log.ok().map(|f| Arc::new(Mutex::new(f)));
-        let br = BufReader::new(reader);
-        for line in br.lines().map_while(|r| r.ok()) {
-            let cleaned = strip_ansi_codes(&line);
+
+        let mut reader = BufReader::new(reader);
+        let mut chunk = [0u8; 4096];
+        let mut pending = Vec::<u8>::new();
+
+        let process_line = |line: &str| {
+            let cleaned = strip_ansi_codes(line);
+
+            if cleaned.trim().is_empty() {
+                return;
+            }
 
             if cleaned.contains("Disconnected from")
                 || cleaned.contains("No connection. Suspend mining")
@@ -804,7 +813,7 @@ fn pipe_gpu_log<R: std::io::Read + Send + 'static>(
                 state
                     .gpu_hashrate_bits
                     .store(0f64.to_bits(), Ordering::Relaxed);
-            } else if let Some(hs) = parse_hashrate_line(&line) {
+            } else if let Some(hs) = parse_hashrate_line(&cleaned) {
                 state
                     .gpu_hashrate_bits
                     .store(hs.to_bits(), Ordering::Relaxed);
@@ -812,12 +821,39 @@ fn pipe_gpu_log<R: std::io::Read + Send + 'static>(
 
             if let Some(file) = &log {
                 let mut f = file.lock();
-                let _ = writeln!(f, "[{label}] {line}");
+                let _ = writeln!(f, "[{label}] {cleaned}");
+            }
+        };
+
+        loop {
+            match std::io::Read::read(&mut reader, &mut chunk) {
+                Ok(0) => {
+                    if !pending.is_empty() {
+                        let line = String::from_utf8_lossy(&pending).into_owned();
+                        process_line(&line);
+                    }
+                    break;
+                }
+
+                Ok(n) => {
+                    for &byte in &chunk[..n] {
+                        if byte == b'\r' || byte == b'\n' {
+                            if !pending.is_empty() {
+                                let line = String::from_utf8_lossy(&pending).into_owned();
+                                pending.clear();
+                                process_line(&line);
+                            }
+                        } else {
+                            pending.push(byte);
+                        }
+                    }
+                }
+
+                Err(_) => break,
             }
         }
     });
 }
-
 fn start_gpu_engine(state: &AppState, cfg: &MinerConfig) -> Result<()> {
     let path = FsPath::new(&cfg.gpu_engine_path);
     if !path.is_file() {
@@ -924,6 +960,34 @@ async fn telemetry_loop(state: AppState) {
             }
         }
 
+        // Automatic KAWPOW recovery after a thermal cutoff.
+        // The mining session remains active; GPU resumes only after
+        // cooling well below the 85C emergency limit.
+        if thermal_tripped && currently_running && mode != "CPU" && gpu_temp_cooled(gpu_temp) {
+            let gpu_process_running = state.gpu_child.lock().is_some();
+
+            if !gpu_process_running {
+                match start_gpu_engine(&state, &cfg) {
+                    Ok(()) => {
+                        info!(
+                            "GPU cooled to {:.0}C (< {:.0}C). Automatically restarting KAWPOW.",
+                            gpu_temp, GPU_TEMP_RESTART_C
+                        );
+
+                        state.gpu_thermal_tripped.store(false, Ordering::Relaxed);
+
+                        thermal_tripped = false;
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Automatic KAWPOW restart failed after thermal cutoff: {}",
+                            e
+                        );
+                    }
+                }
+            }
+        }
+
         let now_hashes = state.cpu_hashes_total.load(Ordering::Relaxed);
         let elapsed = last_tick.elapsed().as_secs_f64().max(0.001);
         let cpu_hashrate = now_hashes.saturating_sub(last_cpu_hashes) as f64 / elapsed;
@@ -972,23 +1036,19 @@ async fn telemetry_loop(state: AppState) {
             if thermal_tripped && mode != "CPU" {
                 s.gpu_hashrate_hs = 0.0;
 
-                if mode == "GPU" {
-                    s.running = false;
-                }
-
                 if mode == "BOTH" {
                     s.phase = "THERMAL SAFETY · GPU STOPPED · CPU ACTIVE".into();
                     s.message = format!(
-                        "KAWPOW stopped for GPU thermal safety. Current GPU temperature: {:.0}°C. RandomX CPU mining remains active. Stop mining, allow the GPU to cool below {:.0}°C, then start again manually.",
+                        "KAWPOW paused for GPU thermal safety at the 85°C limit. Current GPU temperature: {:.0}°C. RandomX CPU mining remains active. KAWPOW will restart automatically below {:.0}°C.",
                         gpu_temp,
-                        GPU_TEMP_WARN_C
+                        GPU_TEMP_RESTART_C
                     );
                 } else {
                     s.phase = "THERMAL SAFETY · GPU STOPPED".into();
                     s.message = format!(
-                        "KAWPOW stopped for GPU thermal safety. Current GPU temperature: {:.0}°C. Allow the GPU to cool below {:.0}°C before starting again.",
+                        "KAWPOW paused for GPU thermal safety at the 85°C limit. Current GPU temperature: {:.0}°C. KAWPOW will restart automatically below {:.0}°C.",
                         gpu_temp,
-                        GPU_TEMP_WARN_C
+                        GPU_TEMP_RESTART_C
                     );
                 }
             } else if !s.running {
@@ -1201,7 +1261,7 @@ async fn pool_loop(state: AppState) {
                     .to_string(),
                 minimum_claim_eknx: network["minimum_claim_eknx"]
                     .as_str()
-                    .unwrap_or("100")
+                    .unwrap_or("")
                     .to_string(),
                 pool_fee_percent: network["pool_fee_percent"].as_u64().unwrap_or(0),
                 pool_fee_bps: network["pool_fee_bps"].as_u64().unwrap_or(0),
@@ -1386,7 +1446,7 @@ async fn api_start(State(state): State<AppState>) -> Result<Json<Value>, (Status
                     StatusCode::SERVICE_UNAVAILABLE,
                     format!(
                         "GPU thermal safety lockout. {detail} Cool the GPU below {:.0}°C before restarting KAWPOW.",
-                        GPU_TEMP_WARN_C
+                        GPU_TEMP_RESTART_C
                     ),
                 ));
             }
@@ -1445,6 +1505,131 @@ async fn api_stop(State(state): State<AppState>) -> Json<Value> {
     Json(json!({"ok":true}))
 }
 
+fn update_metadata_for_platform(release: &Value, current: &str, platform: &str) -> Result<Value> {
+    let tag = release["tag_name"]
+        .as_str()
+        .context("Missing release version")?;
+
+    let latest = semver::Version::parse(tag.strip_prefix('v').unwrap_or(tag))?;
+
+    let installed = semver::Version::parse(current)?;
+
+    if release["draft"].as_bool() != Some(false)
+        || release["prerelease"].as_bool() != Some(false)
+        || !latest.pre.is_empty()
+    {
+        return Err(anyhow!("Expected a published stable release"));
+    }
+
+    let assets = release["assets"]
+        .as_array()
+        .context("Missing release assets")?;
+
+    let asset = |name: &str| -> Option<Value> {
+        let expected =
+            format!("https://github.com/Eureka-Nexus/eureka-miner/releases/download/{tag}/{name}");
+
+        assets
+            .iter()
+            .find(|a| {
+                a["name"].as_str() == Some(name)
+                    && a["browser_download_url"].as_str() == Some(expected.as_str())
+            })
+            .map(|_| {
+                json!({
+                    "name": name,
+                    "url": expected
+                })
+            })
+    };
+
+    let (package_name, secondary_name) = match platform {
+        "windows-x86_64" => (
+            format!("Eureka-Nexus-Miner-Setup-{latest}.exe"),
+            Some(format!(
+                "Eureka-Nexus-Miner-Official-{latest}-Windows-x86_64.zip"
+            )),
+        ),
+
+        "linux-x86_64" => (
+            format!("Eureka-Nexus-Miner-Official-{latest}-Linux-x86_64.tar.gz"),
+            None,
+        ),
+
+        other => {
+            return Err(anyhow!("Unsupported update platform: {other}"));
+        }
+    };
+
+    let package_asset = asset(&package_name);
+
+    let checksum_asset = asset(&format!("{package_name}.sha256.txt"))
+        .or_else(|| asset(&format!("{package_name}.sha256")));
+
+    let secondary_asset = secondary_name.as_ref().and_then(|name| asset(name));
+
+    let secondary_checksum_asset = secondary_name.as_ref().and_then(|name| {
+        asset(&format!("{name}.sha256.txt")).or_else(|| asset(&format!("{name}.sha256")))
+    });
+
+    Ok(json!({
+        "current": current,
+        "latest": latest.to_string(),
+        "update_available":
+            latest.cmp_precedence(&installed).is_gt(),
+
+        "platform": platform,
+
+        "package_asset": package_asset,
+        "checksum_asset": checksum_asset,
+
+        "secondary_asset": secondary_asset,
+        "secondary_checksum_asset":
+            secondary_checksum_asset
+    }))
+}
+
+fn current_update_platform() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows-x86_64"
+    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        "linux-x86_64"
+    } else {
+        "unsupported"
+    }
+}
+
+async fn api_update_check() -> Json<Value> {
+    let current = env!("CARGO_PKG_VERSION");
+    let result: Result<Value> = async {
+        let client = reqwest::Client::builder()
+            .user_agent(format!("EurekaNexusMiner/{current}"))
+            .timeout(Duration::from_secs(15))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
+        let response = client
+            .get("https://api.github.com/repos/Eureka-Nexus/eureka-miner/releases/latest")
+            .header(header::ACCEPT, "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            return Err(anyhow!("GitHub returned HTTP {}", response.status()));
+        }
+        let release: Value = response.json().await?;
+        update_metadata_for_platform(&release, current, current_update_platform())
+    }
+    .await;
+    Json(match result {
+        Ok(metadata) => metadata,
+        Err(error) => json!({
+            "current": current, "latest": null, "update_available": null,
+            "platform": current_update_platform(), "package_asset": null, "checksum_asset": null, "secondary_asset": null, "secondary_checksum_asset": null,
+            "error": format!("Could not check for updates: {error}")
+        }),
+    })
+}
+
 async fn api_claim_info(
     State(state): State<AppState>,
     Path(day): Path<u64>,
@@ -1481,6 +1666,75 @@ async fn api_claim_info(
     }
     let value: Value = serde_json::from_str(&raw)
         .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Invalid claim JSON: {e}")))?;
+    Ok(Json(value))
+}
+
+async fn api_relay_claim(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, (StatusCode, String)> {
+    let cfg = state.config.read().clone();
+
+    if !valid_evm_address(&cfg.wallet) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Configure a valid BSC wallet first".into(),
+        ));
+    }
+
+    let url = format!("{}/v1/relay-claim", cfg.pool_url.trim_end_matches('/'));
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(90))
+        .build()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    let response = client
+        .post(url)
+        .json(&json!({
+            "wallet": cfg.wallet
+        }))
+        .send()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                format!("Could not reach Eureka claim relayer: {e}"),
+            )
+        })?;
+
+    let code = response.status();
+    let raw = response.text().await.unwrap_or_default();
+
+    if !code.is_success() {
+        let upstream_status =
+            StatusCode::from_u16(code.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+
+        let message = serde_json::from_str::<Value>(&raw)
+            .ok()
+            .and_then(|v| {
+                v.get("error")
+                    .and_then(Value::as_str)
+                    .or_else(|| v.get("message").and_then(Value::as_str))
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| {
+                if raw.is_empty() {
+                    format!("Eureka claim relayer returned HTTP {}", code.as_u16())
+                } else {
+                    raw.clone()
+                }
+            });
+
+        return Err((upstream_status, message));
+    }
+
+    let value: Value = serde_json::from_str(&raw).map_err(|e| {
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("Invalid claim relayer JSON: {e}"),
+        )
+    })?;
+
     Ok(Json(value))
 }
 
@@ -1574,10 +1828,12 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .route("/api/status", get(api_status))
+        .route("/api/update/check", get(api_update_check))
         .route("/api/config", get(api_config_get).post(api_config_save))
         .route("/api/start", post(api_start))
         .route("/api/stop", post(api_stop))
         .route("/api/claim/:day", get(api_claim_info))
+        .route("/api/relay-claim", post(api_relay_claim))
         .fallback(get(index_handler))
         .layer(middleware::from_fn_with_state(port, protect_dashboard))
         .with_state(state.clone());
@@ -1616,6 +1872,125 @@ async fn main() -> Result<()> {
 }
 
 #[cfg(test)]
+mod update_tests {
+    use super::*;
+
+    fn release(tag: &str) -> Value {
+        json!({"tag_name": tag, "draft": false, "prerelease": false, "assets": []})
+    }
+
+    #[test]
+    fn semantic_version_precedence() {
+        for (current, latest, expected) in [
+            ("1.1.1", "v1.1.0", false),
+            ("1.1.1", "v1.1.1", false),
+            ("1.9.0", "v1.10.0", true),
+            ("1.1.1-rc.1", "v1.1.1", true),
+            ("1.1.1+local", "v1.1.1+release", false),
+        ] {
+            assert_eq!(
+                update_metadata_for_platform(&release(latest), current, "windows-x86_64").unwrap()
+                    ["update_available"],
+                expected
+            );
+        }
+        for invalid in ["v1.2", "garbage", "v1.2.0-rc.1"] {
+            assert!(
+                update_metadata_for_platform(&release(invalid), "1.1.1", "windows-x86_64").is_err()
+            );
+        }
+        let mut draft = release("v1.2.0");
+        draft["draft"] = json!(true);
+        assert!(update_metadata_for_platform(&draft, "1.1.1", "windows-x86_64").is_err());
+    }
+
+    #[test]
+    fn assets_must_match_official_release() {
+        let mut data = release("v1.2.0");
+
+        let setup = "Eureka-Nexus-Miner-Setup-1.2.0.exe";
+
+        let setup_sha = format!("{setup}.sha256.txt");
+
+        let zip = "Eureka-Nexus-Miner-Official-1.2.0-Windows-x86_64.zip";
+
+        let zip_sha = format!("{zip}.sha256.txt");
+
+        let linux = "Eureka-Nexus-Miner-Official-1.2.0-Linux-x86_64.tar.gz";
+
+        let linux_sha = format!("{linux}.sha256.txt");
+
+        let url = |name: &str| {
+            format!("https://github.com/Eureka-Nexus/eureka-miner/releases/download/v1.2.0/{name}")
+        };
+
+        data["assets"] = json!([
+            {
+                "name": setup,
+                "browser_download_url": url(setup)
+            },
+            {
+                "name": setup_sha,
+                "browser_download_url": url(&setup_sha)
+            },
+            {
+                "name": zip,
+                "browser_download_url": url(zip)
+            },
+            {
+                "name": zip_sha,
+                "browser_download_url": url(&zip_sha)
+            },
+            {
+                "name": linux,
+                "browser_download_url": url(linux)
+            },
+            {
+                "name": linux_sha,
+                "browser_download_url": url(&linux_sha)
+            }
+        ]);
+
+        let windows = update_metadata_for_platform(&data, "1.1.1", "windows-x86_64").unwrap();
+
+        assert_eq!(windows["package_asset"]["name"], setup);
+
+        assert_eq!(windows["checksum_asset"]["name"], setup_sha);
+
+        assert_eq!(windows["secondary_asset"]["name"], zip);
+
+        let linux_result = update_metadata_for_platform(&data, "1.1.1", "linux-x86_64").unwrap();
+
+        assert_eq!(linux_result["package_asset"]["name"], linux);
+
+        assert_eq!(linux_result["checksum_asset"]["name"], linux_sha);
+
+        data["assets"][0]["browser_download_url"] = json!("https://untrusted.example/setup.exe");
+
+        let windows = update_metadata_for_platform(&data, "1.1.1", "windows-x86_64").unwrap();
+
+        assert!(windows["package_asset"].is_null());
+
+        assert!(
+            update_metadata_for_platform(&release("v1.2.0"), "1.1.1", "linux-x86_64").unwrap()
+                ["package_asset"]
+                .is_null()
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "Requires live GitHub access"]
+    async fn official_release_check() {
+        let Json(result) = api_update_check().await;
+        assert!(result.get("error").is_none(), "{result}");
+        assert_eq!(result["current"], env!("CARGO_PKG_VERSION"));
+        assert!(result["latest"].is_string());
+        assert!(result["update_available"].is_boolean());
+        println!("{result}");
+    }
+}
+
+#[cfg(test)]
 mod thermal_safety_tests {
     use super::*;
 
@@ -1627,16 +2002,16 @@ mod thermal_safety_tests {
 
         assert!(!gpu_temp_cutoff(84.9));
         assert!(gpu_temp_cutoff(85.0));
-        assert!(gpu_temp_cutoff(90.0));
+        assert!(gpu_temp_cutoff(95.0));
 
         assert!(!gpu_temp_cooled(0.0));
-        assert!(gpu_temp_cooled(79.9));
-        assert!(!gpu_temp_cooled(80.0));
+        assert!(gpu_temp_cooled(74.9));
+        assert!(!gpu_temp_cooled(75.0));
 
         assert!(gpu_restart_blocked(true, 85.0));
-        assert!(gpu_restart_blocked(true, 80.0));
+        assert!(gpu_restart_blocked(true, 75.0));
         assert!(gpu_restart_blocked(true, 0.0));
-        assert!(!gpu_restart_blocked(true, 79.9));
+        assert!(!gpu_restart_blocked(true, 74.9));
         assert!(!gpu_restart_blocked(false, 90.0));
     }
 }

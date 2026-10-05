@@ -1,4 +1,4 @@
-# Eureka Nexus Miner Official 1.1.0
+# Eureka Nexus Miner Official 1.1.2
 
 Official CPU/GPU miner for the Eureka Nexus (EKNX) ecosystem on BNB Smart Chain Mainnet.
 
@@ -16,26 +16,36 @@ Official CPU/GPU miner for the Eureka Nexus (EKNX) ecosystem on BNB Smart Chain 
 
 ## Download and install
 
-Download the package for your operating system from [GitHub Releases](https://github.com/Eureka-Nexus/eureka-miner/releases). Version 1.1.0 is the Windows desktop release. Download its `.exe.sha256.txt` and compare the Setup SHA-256 before installing. Linux uses its separate release archive and `SHA256SUMS.txt`.
+Download Eureka Nexus Miner 1.1.2 from [GitHub Releases](https://github.com/Eureka-Nexus/eureka-miner/releases). Windows and Linux x86-64 use the same Miner version. Always download the matching SHA-256 checksum together with the package and verify it before running the Miner.
 
 Linux x86-64:
 
+Download:
+
+`Eureka-Nexus-Miner-Official-1.1.2-Linux-x86_64.tar.gz`
+
+and:
+
+`Eureka-Nexus-Miner-Official-1.1.2-Linux-x86_64.tar.gz.sha256.txt`
+
+Then verify and run:
+
 ```bash
-sha256sum -c SHA256SUMS.txt --ignore-missing
-tar -xzf Eureka-Nexus-Miner-Official-1.0.1-Linux-x86_64.tar.gz
-cd Eureka-Nexus-Miner-Official-1.0.1-Linux-x86_64
+sha256sum -c Eureka-Nexus-Miner-Official-1.1.2-Linux-x86_64.tar.gz.sha256.txt
+tar -xzf Eureka-Nexus-Miner-Official-1.1.2-Linux-x86_64.tar.gz
+cd Eureka-Nexus-Miner-Official-1.1.2-Linux-x86_64
 sha256sum -c SHA256SUMS.txt
 ./eureka-nexus-miner-official --version
 ./eureka-nexus-miner-official
 ```
 
-Windows x86-64: download and run `Eureka-Nexus-Miner-Setup-1.1.0.exe`. The installer creates the Eureka Nexus Miner application and shortcuts automatically.
+Windows x86-64: download and run `Eureka-Nexus-Miner-Setup-1.1.2.exe`. The installer creates the Eureka Nexus Miner application and shortcuts automatically.
 
 Open `http://127.0.0.1:8077`, configure your public BSC wallet and select CPU, GPU or BOTH. No mining begins merely by opening the dashboard. The on-chain mining activation gate must be open before mining can start.
 
 ### GPU engine
 
-The Windows 1.1.0 installer automatically downloads the official RavenCommunity kawpowminer 1.2.4 runtime and verifies its published SHA-256. Internet access is required during installation. Download or verification failures are reported by Setup; rerun Setup after correcting the connection. Normal users do not need to run PowerShell or install KAWPOW manually. kawpowminer remains a separate third-party GPL-3.0 component. Compatible GPU drivers are still required.
+The Windows 1.1.2 installer automatically downloads the official RavenCommunity kawpowminer 1.2.4 runtime and verifies its published SHA-256. Internet access is required during installation. Download or verification failures are reported by Setup; rerun Setup after correcting the connection. Normal users do not need to run PowerShell or install KAWPOW manually. kawpowminer remains a separate third-party GPL-3.0 component. Compatible GPU drivers are still required.
 
 CPU mode uses the integrated RandomX engine and does not require that GPU download.
 
@@ -46,7 +56,7 @@ Windows configuration: `%APPDATA%\EurekaNexus\MinerOfficial1\miner-config.json`.
 
 If port 8077 is occupied, identify the existing process before stopping it. For an isolated Linux test, set `XDG_CONFIG_HOME` to a temporary directory containing `EurekaNexus/MinerOfficial1/miner-config.json` with `dashboard_port` set to another loopback port, `open_dashboard` false and `auto_start` false. Do not change another instance's configuration.
 
-Version 1.0.1 supports `--help` and `--version` without starting the dashboard. Version 1.0.0 did not support this behavior. Configuration `auto_start` does not start mining automatically in these versions.
+Version 1.1.2 supports `--help` and `--version` without starting the dashboard. Configuration `auto_start` does not bypass the official mining gate or automatically begin mining.
 
 ## Mining
 
@@ -75,7 +85,7 @@ The Official Mining Server applies a transparent 1% pool fee.
 
 Rewards are finalized at epoch close and added to the miner's cumulative Merkle entitlement.
 
-Minimum claim policy: 100 EKNX.
+The official minimum claim policy is currently **50 EKNX**. The Miner reads the active minimum live from the Official Mining Server rather than hardcoding it, so the server remains authoritative.
 
 Mining cannot start before on-chain EKNX mining activation.
 
@@ -85,9 +95,7 @@ Mining cannot start before on-chain EKNX mining activation.
 - 80 C to 84.9 C: warning
 - 85 C or above: KAWPOW automatically stops
 
-After a thermal cutoff, GPU mining remains locked until the GPU cools below 80 C and the user starts mining again manually.
-
-In BOTH mode, CPU RandomX mining can remain active after a GPU thermal cutoff.
+After a thermal cutoff, the mining session remains active. KAWPOW automatically restarts only after the GPU cools below 75 C. In BOTH mode, RandomX CPU mining can continue while the GPU is cooling.
 
 ## Wallet security
 
@@ -95,7 +103,7 @@ The Miner only stores a public BSC wallet address.
 
 It never stores private keys, seed phrases, operator keys or treasury keys.
 
-Claim transactions are confirmed and signed inside the user's own browser wallet.
+The Miner does not sign claim transactions with the mining wallet. After the user confirms the claim in the Miner, the official Eureka Nexus Relayer submits the BSC transaction and pays the gas. The Miner only uses the configured public BSC receiving address.
 
 ## Dashboard
 
@@ -112,7 +120,7 @@ The interface can request a compatible browser wallet to add:
 
 Linux:
 
-`cargo test --locked && cargo build --release --locked --bin eureka-nexus-miner-official`
+`./BUILD_LINUX_RELEASE.sh`
 
 Windows:
 

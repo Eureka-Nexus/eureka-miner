@@ -78,4 +78,10 @@ foreach ($Required in @('kawpowminer.exe', 'nvrtc64_112_0.dll', 'nvrtc-builtins6
         throw "KAWPOW installation incomplete: $Required"
     }
 }
+
+# Successful install: temporary download/extraction files are no longer needed.
+if (Test-Path -LiteralPath $Tmp) {
+    Remove-Item -LiteralPath $Tmp -Recurse -Force
+}
+
 Stop-Transcript | Out-Null

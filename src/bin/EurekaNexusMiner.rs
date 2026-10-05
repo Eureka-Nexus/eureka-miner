@@ -5,7 +5,10 @@
 
 #[cfg(not(target_os = "windows"))]
 fn main() {
-    println!("Eureka Nexus Miner Desktop 1.1.0 is for Windows.");
+    println!(
+        "Eureka Nexus Miner Desktop {} is for Windows.",
+        env!("CARGO_PKG_VERSION")
+    );
 }
 
 #[cfg(target_os = "windows")]
@@ -234,7 +237,7 @@ mod app {
         let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
         let window = WindowBuilder::new()
-            .with_title("Eureka Nexus Miner 1.1.0")
+            .with_title(format!("Eureka Nexus Miner {}", env!("CARGO_PKG_VERSION")))
             .with_inner_size(LogicalSize::new(1400.0, 900.0))
             .with_min_inner_size(LogicalSize::new(1000.0, 650.0))
             .with_window_icon(app_icon())
@@ -260,10 +263,62 @@ mod app {
         });
 
         event_loop.run(move |event, _, control_flow| {
-            *control_flow = ControlFlow::Wait;
+            // Wake periodically so the launcher can detect an unexpected
+            // backend termination. If the backend disappears, every mining
+            // engine in the Windows Job Object is stopped immediately.
+            *control_flow =
+                ControlFlow::WaitUntil(std::time::Instant::now() + Duration::from_millis(500));
 
             let _keep_webview_alive = &webview;
             let _keep_web_context_alive = &web_context;
+
+            if !backend.stopped {
+                match backend.child.try_wait() {
+                    Ok(Some(status)) => {
+                        backend.shutdown();
+
+                        window.set_title("Eureka Nexus Miner - BACKEND STOPPED");
+
+                        let message = format!(
+                            "BACKEND INTERROMPIDO\n\n\
+                             O processo principal terminou inesperadamente ({status}).\n\n\
+                             A mineração GPU/CPU foi parada automaticamente por segurança.\n\
+                             Feche e volte a abrir o Eureka Nexus Miner."
+                        );
+
+                        let script = format!(
+                            "alert({});",
+                            serde_json::to_string(&message)
+                                .unwrap_or_else(|_| "\"Backend interrompido.\"".to_string())
+                        );
+
+                        let _ = webview.evaluate_script(&script);
+                    }
+
+                    Ok(None) => {}
+
+                    Err(error) => {
+                        backend.shutdown();
+
+                        window.set_title("Eureka Nexus Miner - BACKEND ERROR");
+
+                        let message = format!(
+                            "ERRO NO BACKEND\n\n\
+                             Não foi possível verificar o processo principal: {error}\n\n\
+                             A mineração GPU/CPU foi parada automaticamente por segurança.\n\
+                             Feche e volte a abrir o Eureka Nexus Miner."
+                        );
+
+                        let script = format!(
+                            "alert({});",
+                            serde_json::to_string(&message)
+                                .unwrap_or_else(|_| "\"Erro no backend.\"".to_string())
+                        );
+
+                        let _ = webview.evaluate_script(&script);
+                    }
+                }
+            }
 
             match event {
                 Event::UserEvent(UserEvent::Show) => {
