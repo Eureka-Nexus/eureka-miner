@@ -13,6 +13,7 @@ use randomx_rs::{RandomXCache, RandomXFlag, RandomXVM};
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::{
     collections::hash_map::DefaultHasher,
     fs::{self, OpenOptions},
@@ -1630,6 +1631,388 @@ async fn api_update_check() -> Json<Value> {
     })
 }
 
+
+fn update_work_dir() -> Result<PathBuf> {
+    let base = dirs::data_local_dir()
+        .context("Cannot locate the local application data directory")?;
+
+    Ok(base
+        .join("EurekaNexus")
+        .join("Updater"))
+}
+
+fn prepared_update_path() -> Result<PathBuf> {
+    Ok(update_work_dir()?.join("prepared-update.json"))
+}
+
+fn pending_update_path() -> Result<PathBuf> {
+    Ok(update_work_dir()?.join("pending-update.json"))
+}
+
+fn require_desktop_update_mode() -> Result<()> {
+    if !cfg!(target_os = "windows") {
+        return Err(anyhow!(
+            "Automatic installation is currently available on Windows only"
+        ));
+    }
+
+    let desktop_mode = std::env::var("EUREKA_DESKTOP_MODE")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+
+    if !desktop_mode {
+        return Err(anyhow!(
+            "Automatic installation is available only in Eureka Nexus Miner desktop mode"
+        ));
+    }
+
+    Ok(())
+}
+
+async fn fetch_update_metadata() -> Result<Value> {
+    let current = env!("CARGO_PKG_VERSION");
+
+    let client = reqwest::Client::builder()
+        .user_agent(format!("EurekaNexusMiner/{current}"))
+        .timeout(Duration::from_secs(20))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?;
+
+    let response = client
+        .get("https://api.github.com/repos/Eureka-Nexus/eureka-miner/releases/latest")
+        .header(header::ACCEPT, "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        return Err(anyhow!(
+            "GitHub returned HTTP {}",
+            response.status()
+        ));
+    }
+
+    let release: Value = response.json().await?;
+
+    update_metadata_for_platform(
+        &release,
+        current,
+        current_update_platform(),
+    )
+}
+
+async fn download_update_file(url: &str, max_bytes: usize) -> Result<Vec<u8>> {
+    if !url.starts_with(
+        "https://github.com/Eureka-Nexus/eureka-miner/releases/download/"
+    ) {
+        return Err(anyhow!("Refusing untrusted update URL"));
+    }
+
+    let client = reqwest::Client::builder()
+        .user_agent(format!(
+            "EurekaNexusMiner/{}",
+            env!("CARGO_PKG_VERSION")
+        ))
+        .timeout(Duration::from_secs(180))
+        .redirect(reqwest::redirect::Policy::limited(5))
+        .build()?;
+
+    let response = client.get(url).send().await?;
+
+    if !response.status().is_success() {
+        return Err(anyhow!(
+            "Update download returned HTTP {}",
+            response.status()
+        ));
+    }
+
+    if let Some(length) = response.content_length() {
+        if length > max_bytes as u64 {
+            return Err(anyhow!(
+                "Downloaded update file is unexpectedly large"
+            ));
+        }
+    }
+
+    let mut response = response;
+    let mut bytes = Vec::new();
+
+    while let Some(chunk) = response.chunk().await? {
+        if bytes.len().saturating_add(chunk.len()) > max_bytes {
+            return Err(anyhow!(
+                "Downloaded update file is unexpectedly large"
+            ));
+        }
+
+        bytes.extend_from_slice(&chunk);
+    }
+
+    if bytes.is_empty() {
+        return Err(anyhow!("Downloaded update file is empty"));
+    }
+
+    Ok(bytes)
+}
+
+async fn api_update_prepare() -> Json<Value> {
+    let result: Result<Value> = async {
+        require_desktop_update_mode()?;
+
+        let metadata = fetch_update_metadata().await?;
+
+        if metadata["update_available"].as_bool() != Some(true) {
+            return Err(anyhow!("No newer release is available"));
+        }
+
+        let package = metadata["package_asset"]
+            .as_object()
+            .context("Official Windows installer is missing")?;
+
+        let checksum = metadata["checksum_asset"]
+            .as_object()
+            .context("Official installer checksum is missing")?;
+
+        let package_name = package
+            .get("name")
+            .and_then(Value::as_str)
+            .context("Installer name is missing")?;
+
+        let package_url = package
+            .get("url")
+            .and_then(Value::as_str)
+            .context("Installer URL is missing")?;
+
+        let checksum_url = checksum
+            .get("url")
+            .and_then(Value::as_str)
+            .context("Checksum URL is missing")?;
+
+        let checksum_bytes =
+            download_update_file(checksum_url, 64 * 1024).await?;
+
+        let checksum_text =
+            String::from_utf8(checksum_bytes)
+                .context("Checksum file is not valid UTF-8")?;
+
+        let mut fields = checksum_text.split_whitespace();
+
+        let expected_hash = fields
+            .next()
+            .context("Checksum file does not contain SHA256")?
+            .to_ascii_lowercase();
+
+        if expected_hash.len() != 64
+            || !expected_hash
+                .chars()
+                .all(|c| c.is_ascii_hexdigit())
+        {
+            return Err(anyhow!("Invalid SHA256 in checksum file"));
+        }
+
+        if let Some(checksum_name) = fields.next() {
+            let checksum_name =
+                checksum_name.trim_start_matches('*');
+
+            if checksum_name != package_name {
+                return Err(anyhow!(
+                    "Checksum filename does not match installer"
+                ));
+            }
+        }
+
+        let setup_bytes =
+            download_update_file(package_url, 150 * 1024 * 1024).await?;
+
+        let actual_hash =
+            hex::encode(Sha256::digest(&setup_bytes));
+
+        if actual_hash != expected_hash {
+            return Err(anyhow!(
+                "SHA256 verification failed for downloaded installer"
+            ));
+        }
+
+        let dir = update_work_dir()?;
+        fs::create_dir_all(&dir)?;
+
+        let setup_path = dir.join(package_name);
+        let partial_path =
+            dir.join(format!("{package_name}.part"));
+
+        if partial_path.exists() {
+            let _ = fs::remove_file(&partial_path);
+        }
+
+        fs::write(&partial_path, &setup_bytes)?;
+
+        if setup_path.exists() {
+            fs::remove_file(&setup_path)?;
+        }
+
+        fs::rename(&partial_path, &setup_path)?;
+
+        let latest = metadata["latest"]
+            .as_str()
+            .context("Latest version missing")?;
+
+        let manifest = json!({
+            "version": 1,
+            "current": env!("CARGO_PKG_VERSION"),
+            "latest": latest,
+            "setup_path": setup_path.to_string_lossy(),
+            "sha256": actual_hash
+        });
+
+        let prepared = prepared_update_path()?;
+        let pending = pending_update_path()?;
+
+        if pending.exists() {
+            let _ = fs::remove_file(&pending);
+        }
+
+        fs::write(
+            &prepared,
+            serde_json::to_vec_pretty(&manifest)?
+        )?;
+
+        Ok(json!({
+            "ok": true,
+            "ready": true,
+            "current": env!("CARGO_PKG_VERSION"),
+            "latest": latest,
+            "installer": package_name,
+            "sha256": actual_hash
+        }))
+    }
+    .await;
+
+    Json(match result {
+        Ok(value) => value,
+        Err(error) => json!({
+            "ok": false,
+            "ready": false,
+            "error": format!("{error:#}")
+        }),
+    })
+}
+
+async fn api_update_apply() -> Json<Value> {
+    let result: Result<Value> = (|| {
+        require_desktop_update_mode()?;
+
+        let prepared = prepared_update_path()?;
+
+        if !prepared.exists() {
+            return Err(anyhow!(
+                "No verified update has been prepared"
+            ));
+        }
+
+        let raw = fs::read(&prepared)?;
+        let manifest: Value = serde_json::from_slice(&raw)?;
+
+        let setup_path = manifest["setup_path"]
+            .as_str()
+            .context("Prepared installer path is missing")?;
+
+        let setup = PathBuf::from(setup_path);
+
+        if !setup.is_file() {
+            return Err(anyhow!(
+                "Prepared installer no longer exists"
+            ));
+        }
+
+        let latest = manifest["latest"]
+            .as_str()
+            .context("Prepared update version is missing")?;
+
+        let latest_version =
+            semver::Version::parse(latest)
+                .context("Invalid prepared update version")?;
+
+        let current_version =
+            semver::Version::parse(env!("CARGO_PKG_VERSION"))?;
+
+        if latest_version <= current_version {
+            return Err(anyhow!(
+                "Prepared update is not newer than the installed version"
+            ));
+        }
+
+        let expected_name =
+            format!("Eureka-Nexus-Miner-Setup-{latest}.exe");
+
+        if setup.file_name().and_then(|v| v.to_str())
+            != Some(expected_name.as_str())
+        {
+            return Err(anyhow!(
+                "Prepared installer filename is not trusted"
+            ));
+        }
+
+        let update_root =
+            fs::canonicalize(update_work_dir()?)?;
+
+        let setup_real =
+            fs::canonicalize(&setup)?;
+
+        if !setup_real.starts_with(&update_root) {
+            return Err(anyhow!(
+                "Prepared installer is outside the updater directory"
+            ));
+        }
+
+        let expected_hash = manifest["sha256"]
+            .as_str()
+            .context("Prepared installer SHA256 is missing")?
+            .to_ascii_lowercase();
+
+        if expected_hash.len() != 64
+            || !expected_hash
+                .chars()
+                .all(|c| c.is_ascii_hexdigit())
+        {
+            return Err(anyhow!(
+                "Invalid SHA256 in prepared update manifest"
+            ));
+        }
+
+        let actual_hash =
+            hex::encode(Sha256::digest(fs::read(&setup_real)?));
+
+        if actual_hash != expected_hash {
+            return Err(anyhow!(
+                "Prepared installer SHA256 verification failed"
+            ));
+        }
+
+        let pending = pending_update_path()?;
+
+        if pending.exists() {
+            fs::remove_file(&pending)?;
+        }
+
+        fs::rename(&prepared, &pending)?;
+
+        Ok(json!({
+            "ok": true,
+            "install_requested": true,
+            "latest": manifest["latest"]
+        }))
+    })();
+
+    Json(match result {
+        Ok(value) => value,
+        Err(error) => json!({
+            "ok": false,
+            "install_requested": false,
+            "error": format!("{error:#}")
+        }),
+    })
+}
+
+
 async fn api_claim_info(
     State(state): State<AppState>,
     Path(day): Path<u64>,
@@ -1829,6 +2212,8 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/api/status", get(api_status))
         .route("/api/update/check", get(api_update_check))
+        .route("/api/update/prepare", post(api_update_prepare))
+        .route("/api/update/apply", post(api_update_apply))
         .route("/api/config", get(api_config_get).post(api_config_save))
         .route("/api/start", post(api_start))
         .route("/api/stop", post(api_stop))

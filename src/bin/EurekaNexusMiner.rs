@@ -14,12 +14,14 @@ fn main() {
 #[cfg(target_os = "windows")]
 mod app {
     use anyhow::{anyhow, Context, Result};
+    use sha2::{Digest, Sha256};
     use std::{
-        io::Write,
+        fs,
+        io::{Read, Write},
         net::{TcpListener, TcpStream},
         os::windows::io::AsRawHandle,
         os::windows::process::CommandExt,
-        path::PathBuf,
+        path::{Path, PathBuf},
         process::{Child, Command, Stdio},
         thread,
         time::Duration,
@@ -87,6 +89,153 @@ mod app {
     const DASHBOARD_URL: &str = "http://127.0.0.1:8077";
     const INSTANCE_ADDR: &str = "127.0.0.1:48077";
     const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    fn updater_dir() -> Result<PathBuf> {
+        let base = std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .context("Cannot locate Windows LocalAppData directory")?;
+
+        Ok(base.join("EurekaNexus").join("Updater"))
+    }
+
+    fn pending_update_path() -> Result<PathBuf> {
+        Ok(updater_dir()?.join("pending-update.json"))
+    }
+
+    fn verified_pending_update() -> Result<Option<PathBuf>> {
+        let pending = pending_update_path()?;
+
+        if !pending.exists() {
+            return Ok(None);
+        }
+
+        let raw = fs::read(&pending)
+            .context("Cannot read pending update manifest")?;
+
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&raw)
+                .context("Invalid pending update manifest")?;
+
+        let latest = manifest["latest"]
+            .as_str()
+            .context("Pending update version is missing")?;
+
+        let latest_version =
+            semver::Version::parse(latest)
+                .context("Invalid pending update version")?;
+
+        let current_version =
+            semver::Version::parse(env!("CARGO_PKG_VERSION"))?;
+
+        if latest_version <= current_version {
+            return Err(anyhow!(
+                "Pending update {latest} is not newer than {}",
+                env!("CARGO_PKG_VERSION")
+            ));
+        }
+
+        let setup_raw = manifest["setup_path"]
+            .as_str()
+            .context("Pending installer path is missing")?;
+
+        let setup = PathBuf::from(setup_raw);
+
+        if !setup.is_file() {
+            return Err(anyhow!(
+                "Pending installer does not exist: {}",
+                setup.display()
+            ));
+        }
+
+        let expected_name =
+            format!("Eureka-Nexus-Miner-Setup-{latest}.exe");
+
+        if setup.file_name().and_then(|v| v.to_str())
+            != Some(expected_name.as_str())
+        {
+            return Err(anyhow!(
+                "Pending installer filename is not trusted"
+            ));
+        }
+
+        let update_root =
+            fs::canonicalize(updater_dir()?)
+                .context("Cannot canonicalize updater directory")?;
+
+        let setup_real =
+            fs::canonicalize(&setup)
+                .context("Cannot canonicalize pending installer")?;
+
+        if !setup_real.starts_with(&update_root) {
+            return Err(anyhow!(
+                "Pending installer is outside the Eureka updater directory"
+            ));
+        }
+
+        let expected_hash = manifest["sha256"]
+            .as_str()
+            .context("Pending installer SHA256 is missing")?
+            .to_ascii_lowercase();
+
+        if expected_hash.len() != 64
+            || !expected_hash
+                .chars()
+                .all(|c| c.is_ascii_hexdigit())
+        {
+            return Err(anyhow!(
+                "Invalid SHA256 in pending update manifest"
+            ));
+        }
+
+        let mut file =
+            fs::File::open(&setup_real)
+                .context("Cannot open pending installer")?;
+
+        let mut hasher = Sha256::new();
+        let mut buffer = vec![0u8; 64 * 1024];
+
+        loop {
+            let count = file.read(&mut buffer)?;
+
+            if count == 0 {
+                break;
+            }
+
+            hasher.update(&buffer[..count]);
+        }
+
+        let actual_hash = hex::encode(hasher.finalize());
+
+        if actual_hash != expected_hash {
+            return Err(anyhow!(
+                "Pending installer SHA256 verification failed"
+            ));
+        }
+
+        Ok(Some(setup_real))
+    }
+
+    fn launch_verified_installer(setup: &Path) -> Result<()> {
+        Command::new(setup)
+            .arg("/SILENT")
+            .arg("/SUPPRESSMSGBOXES")
+            .arg("/NORESTART")
+            .arg("/CLOSEAPPLICATIONS")
+            .current_dir(
+                setup.parent()
+                    .context("Installer directory is unavailable")?
+            )
+            .spawn()
+            .with_context(|| {
+                format!(
+                    "Cannot start verified installer {}",
+                    setup.display()
+                )
+            })?;
+
+        Ok(())
+    }
+
 
     fn webview_data_dir() -> Result<PathBuf> {
         let base = std::env::var_os("LOCALAPPDATA")
@@ -238,8 +387,8 @@ mod app {
 
         let window = WindowBuilder::new()
             .with_title(format!("Eureka Nexus Miner {}", env!("CARGO_PKG_VERSION")))
-            .with_inner_size(LogicalSize::new(1400.0, 900.0))
-            .with_min_inner_size(LogicalSize::new(1000.0, 650.0))
+            .with_inner_size(LogicalSize::new(1180.0, 760.0))
+            .with_min_inner_size(LogicalSize::new(820.0, 560.0))
             .with_window_icon(app_icon())
             .build(&event_loop)
             .context("Cannot create Eureka Nexus Miner window")?;
@@ -271,6 +420,66 @@ mod app {
 
             let _keep_webview_alive = &webview;
             let _keep_web_context_alive = &web_context;
+
+            if !backend.stopped {
+                match verified_pending_update() {
+                    Ok(Some(setup)) => {
+                        match launch_verified_installer(&setup) {
+                            Ok(()) => {
+                                if let Ok(pending) = pending_update_path() {
+                                    let _ = fs::remove_file(pending);
+                                }
+
+                                backend.shutdown();
+                                *control_flow = ControlFlow::Exit;
+                                return;
+                            }
+
+                            Err(error) => {
+                                if let Ok(pending) = pending_update_path() {
+                                    let _ = fs::remove_file(pending);
+                                }
+
+                                let message = format!(
+                                    "UPDATE FAILED\n\n\
+                                     The verified installer could not be started:\n\
+                                     {error:#}"
+                                );
+
+                                let script = format!(
+                                    "alert({});",
+                                    serde_json::to_string(&message)
+                                        .unwrap_or_else(|_| "\"Update failed.\"".to_string())
+                                );
+
+                                let _ = webview.evaluate_script(&script);
+                            }
+                        }
+                    }
+
+                    Ok(None) => {}
+
+                    Err(error) => {
+                        if let Ok(pending) = pending_update_path() {
+                            let _ = fs::remove_file(pending);
+                        }
+
+                        let message = format!(
+                            "UPDATE VERIFICATION FAILED\n\n\
+                             The pending update was rejected:\n\
+                             {error:#}"
+                        );
+
+                        let script = format!(
+                            "alert({});",
+                            serde_json::to_string(&message)
+                                .unwrap_or_else(|_| "\"Update verification failed.\"".to_string())
+                        );
+
+                        let _ = webview.evaluate_script(&script);
+                    }
+                }
+            }
 
             if !backend.stopped {
                 match backend.child.try_wait() {

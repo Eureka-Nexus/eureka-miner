@@ -1,4 +1,4 @@
-# Eureka Nexus Miner Official 1.1.2
+# Eureka Nexus Miner Official 1.1.3
 
 Official CPU/GPU miner for the Eureka Nexus (EKNX) ecosystem on BNB Smart Chain Mainnet.
 
@@ -16,36 +16,36 @@ Official CPU/GPU miner for the Eureka Nexus (EKNX) ecosystem on BNB Smart Chain 
 
 ## Download and install
 
-Download Eureka Nexus Miner 1.1.2 from [GitHub Releases](https://github.com/Eureka-Nexus/eureka-miner/releases). Windows and Linux x86-64 use the same Miner version. Always download the matching SHA-256 checksum together with the package and verify it before running the Miner.
+Download Eureka Nexus Miner 1.1.3 from [GitHub Releases](https://github.com/Eureka-Nexus/eureka-miner/releases). Windows and Linux x86-64 use the same Miner version. Always download the matching SHA-256 checksum together with the package and verify it before running the Miner.
 
 Linux x86-64:
 
 Download:
 
-`Eureka-Nexus-Miner-Official-1.1.2-Linux-x86_64.tar.gz`
+`Eureka-Nexus-Miner-Official-1.1.3-Linux-x86_64.tar.gz`
 
 and:
 
-`Eureka-Nexus-Miner-Official-1.1.2-Linux-x86_64.tar.gz.sha256.txt`
+`Eureka-Nexus-Miner-Official-1.1.3-Linux-x86_64.tar.gz.sha256.txt`
 
 Then verify and run:
 
 ```bash
-sha256sum -c Eureka-Nexus-Miner-Official-1.1.2-Linux-x86_64.tar.gz.sha256.txt
-tar -xzf Eureka-Nexus-Miner-Official-1.1.2-Linux-x86_64.tar.gz
-cd Eureka-Nexus-Miner-Official-1.1.2-Linux-x86_64
+sha256sum -c Eureka-Nexus-Miner-Official-1.1.3-Linux-x86_64.tar.gz.sha256.txt
+tar -xzf Eureka-Nexus-Miner-Official-1.1.3-Linux-x86_64.tar.gz
+cd Eureka-Nexus-Miner-Official-1.1.3-Linux-x86_64
 sha256sum -c SHA256SUMS.txt
 ./eureka-nexus-miner-official --version
 ./eureka-nexus-miner-official
 ```
 
-Windows x86-64: download and run `Eureka-Nexus-Miner-Setup-1.1.2.exe`. The installer creates the Eureka Nexus Miner application and shortcuts automatically.
+Windows x86-64: download and run `Eureka-Nexus-Miner-Setup-1.1.3.exe`. The installer creates the Eureka Nexus Miner application and shortcuts automatically.
 
 Open `http://127.0.0.1:8077`, configure your public BSC wallet and select CPU, GPU or BOTH. No mining begins merely by opening the dashboard. The on-chain mining activation gate must be open before mining can start.
 
 ### GPU engine
 
-The Windows 1.1.2 installer automatically downloads the official RavenCommunity kawpowminer 1.2.4 runtime and verifies its published SHA-256. Internet access is required during installation. Download or verification failures are reported by Setup; rerun Setup after correcting the connection. Normal users do not need to run PowerShell or install KAWPOW manually. kawpowminer remains a separate third-party GPL-3.0 component. Compatible GPU drivers are still required.
+The Windows 1.1.3 installer automatically downloads the official RavenCommunity kawpowminer 1.2.4 runtime and verifies its published SHA-256. Internet access is required during installation. Download or verification failures are reported by Setup; rerun Setup after correcting the connection. Normal users do not need to run PowerShell or install KAWPOW manually. kawpowminer remains a separate third-party GPL-3.0 component. Compatible GPU drivers are still required.
 
 CPU mode uses the integrated RandomX engine and does not require that GPU download.
 
@@ -56,7 +56,7 @@ Windows configuration: `%APPDATA%\EurekaNexus\MinerOfficial1\miner-config.json`.
 
 If port 8077 is occupied, identify the existing process before stopping it. For an isolated Linux test, set `XDG_CONFIG_HOME` to a temporary directory containing `EurekaNexus/MinerOfficial1/miner-config.json` with `dashboard_port` set to another loopback port, `open_dashboard` false and `auto_start` false. Do not change another instance's configuration.
 
-Version 1.1.2 supports `--help` and `--version` without starting the dashboard. Configuration `auto_start` does not bypass the official mining gate or automatically begin mining.
+Version 1.1.3 supports `--help` and `--version` without starting the dashboard. Configuration `auto_start` does not bypass the official mining gate or automatically begin mining.
 
 ## Mining
 
