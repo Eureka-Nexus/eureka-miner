@@ -363,15 +363,17 @@ img,svg{
   display:block;
   color:#f5f7fb;
   margin:8px 0 5px;
-  font-size:19px;
+  font-size:clamp(12px,1.15vw,19px);
   white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis;
+  overflow:visible;
+  text-overflow:clip;
+  letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;
 }
 
 .balance2026:first-child b{
   color:#24f0a0;
-  font-size:24px;
+  font-size:clamp(14px,1.25vw,22px);
 }
 
 .nextPayout2026{
@@ -1215,11 +1217,9 @@ img,svg{
 }
 
 .visionTag2026{
-  position:absolute;
-  left:100%;
-  top:3px;
-  margin-left:28px;
-  width:max-content;
+  position:static;
+  margin-left:0;
+  width:auto;
   color:#f0c45a;
   font-size:16px;
   font-style:italic;
@@ -1811,7 +1811,7 @@ img,svg{
     <div class="card balance2026">
       <small>Mining Balance</small>
       <b id="entitlement">0 EKNX</b>
-      <span id="walletBalance">0 EKNX na wallet</span>
+      <span id="walletBalance">0 EKNX in wallet</span>
     </div>
 
     <div class="card balance2026">
