@@ -1,6 +1,6 @@
 {
   "project": "Eureka Nexus",
-  "miner": "Eureka Nexus Miner Official 1.0",
+  "miner": "Eureka 2026 1.0",
   "network": "BNB Smart Chain Mainnet",
   "chain_id": 56,
   "native_currency": "BNB",
@@ -25,5 +25,6 @@
   "algorithms": {
     "gpu": "KAWPOW-EUREKA-V1",
     "cpu": "RANDOMX-EUREKA-V1"
-  }
+  },
+  "technical_version": "2026.1.0"
 }

@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use axum::{
     body::Body,
-    extract::{Path, State},
+    extract::{State},
     http::{header, HeaderMap, Request, StatusCode, Uri},
     middleware::{self, Next},
     response::Response,
@@ -33,7 +33,7 @@ use sysinfo::System;
 use tokio::time::sleep;
 use tracing::{info, warn};
 
-const APP_NAME: &str = concat!("Eureka Nexus Miner Official ", env!("CARGO_PKG_VERSION"));
+const APP_NAME: &str = "Eureka 2026 1.0";
 const CHAIN_ID: u64 = 56;
 const NETWORK: &str = "BNB Smart Chain Mainnet";
 const EKNX: &str = "0xF54913A8d5E2AEBD0B62c6411cCf1b5B4aB069c9";
@@ -61,7 +61,7 @@ fn gpu_restart_blocked(thermal_tripped: bool, temp: f32) -> bool {
 }
 const TOKEN_DECIMALS: u32 = 18;
 const DOMAIN_CPU: &[u8] = b"EKNX-RANDOMX-V1";
-const CLIENT_VERSION: &str = "Eureka-Nexus-Miner-Official/1.0";
+const CLIENT_VERSION: &str = concat!("Eureka-Nexus-Miner-Official/", env!("CARGO_PKG_VERSION"));
 
 #[derive(RustEmbed)]
 #[folder = "web/"]
@@ -1329,7 +1329,7 @@ async fn api_status(State(state): State<AppState>) -> Json<Value> {
             "gpu_algorithm":"KAWPOW-EUREKA-V1",
             "cpu_algorithm":"RANDOMX-EUREKA-V1",
             "epoch_seconds":60,
-            "claim_model":"daily cumulative Merkle entitlement",
+            "claim_model":"automatic server-paid payouts; no manual claim required",
             "client_engine_ready":s.engine_ready,
             "cpu_engine_ready":s.cpu_engine_ready,
             "gpu_engine_ready":s.gpu_engine_ready,
@@ -2013,48 +2013,124 @@ async fn api_update_apply() -> Json<Value> {
 }
 
 
-async fn api_claim_info(
-    State(state): State<AppState>,
-    Path(day): Path<u64>,
-) -> Result<Json<Value>, (StatusCode, String)> {
-    let cfg = state.config.read().clone();
-    if !valid_evm_address(&cfg.wallet) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Configure a valid BSC wallet first".into(),
-        ));
-    }
-    let url = format!(
-        "{}/v1/claim/{}/{}",
-        cfg.pool_url.trim_end_matches('/'),
-        cfg.wallet,
-        day
-    );
-    let response = reqwest::Client::new()
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| (StatusCode::BAD_GATEWAY, e.to_string()))?;
-    let code = response.status();
-    let raw = response.text().await.unwrap_or_default();
-    if !code.is_success() {
-        return Err((
-            StatusCode::BAD_GATEWAY,
-            if raw.is_empty() {
-                format!("Pool returned {code}")
-            } else {
-                raw
-            },
-        ));
-    }
-    let value: Value = serde_json::from_str(&raw)
-        .map_err(|e| (StatusCode::BAD_GATEWAY, format!("Invalid claim JSON: {e}")))?;
-    Ok(Json(value))
+fn payout_wei(payload: &Value, key: &str) -> std::result::Result<u128, String> {
+    let raw = payload
+        .get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("missing string field {key}"))?;
+
+    raw.parse::<u128>()
+        .map_err(|_| format!("invalid uint field {key}"))
 }
 
-async fn api_relay_claim(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, (StatusCode, String)> {
+fn validate_payout_payload(
+    payload: &Value,
+    expected_wallet: &str,
+) -> std::result::Result<(), String> {
+    let wallet = payload
+        .get("wallet")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "missing wallet".to_string())?;
+
+    if !wallet.eq_ignore_ascii_case(expected_wallet) {
+        return Err("payout wallet does not match configured wallet".into());
+    }
+
+    if payload.get("chain_id").and_then(Value::as_u64) != Some(CHAIN_ID) {
+        return Err("unexpected payout chain_id".into());
+    }
+
+    let token = payload
+        .get("token_contract")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "missing token_contract".to_string())?;
+
+    if !token.eq_ignore_ascii_case(EKNX) {
+        return Err("unexpected payout token contract".into());
+    }
+
+    if payload.get("automatic_payout").and_then(Value::as_bool) != Some(true) {
+        return Err("automatic_payout is not enabled".into());
+    }
+
+    if payload
+        .get("manual_claim_required")
+        .and_then(Value::as_bool)
+        != Some(false)
+    {
+        return Err("server unexpectedly requires manual claim".into());
+    }
+
+    if payload.get("gas_paid_by").and_then(Value::as_str) != Some("eureka") {
+        return Err("unexpected payout gas policy".into());
+    }
+
+    let status = payload
+        .get("status")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "missing payout status".to_string())?;
+
+    if !matches!(
+        status,
+        "IDLE" | "WAITING_SETTLEMENT" | "PENDING" | "ELIGIBLE" | "PROCESSING" | "PAID"
+    ) {
+        return Err(format!("unknown payout status {status}"));
+    }
+
+    let minimum = payout_wei(payload, "minimum_payout_wei")?;
+
+    let total = payout_wei(payload, "total_mined_wei")?;
+
+    let published = payout_wei(payload, "published_entitlement_wei")?;
+
+    let paid = payout_wei(payload, "paid_wei")?;
+
+    let available = payout_wei(payload, "available_for_payout_wei")?;
+
+    let pending = payout_wei(payload, "pending_settlement_wei")?;
+
+    if minimum == 0 {
+        return Err("minimum payout must be greater than zero".into());
+    }
+
+    if published > total {
+        return Err("published entitlement exceeds total mined".into());
+    }
+
+    if paid > published {
+        return Err("paid amount exceeds published entitlement".into());
+    }
+
+    if available != published - paid {
+        return Err("available payout arithmetic mismatch".into());
+    }
+
+    if pending != total - published {
+        return Err("pending settlement arithmetic mismatch".into());
+    }
+
+    let interval = payload
+        .get("payout_interval_hours")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| "missing payout_interval_hours".to_string())?;
+
+    if interval == 0 {
+        return Err("invalid payout interval".into());
+    }
+
+    let next_check = payload
+        .get("next_automatic_check_utc")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+
+    if next_check.trim().is_empty() {
+        return Err("missing next automatic payout check".into());
+    }
+
+    Ok(())
+}
+
+async fn api_payout(State(state): State<AppState>) -> Result<Json<Value>, (StatusCode, String)> {
     let cfg = state.config.read().clone();
 
     if !valid_evm_address(&cfg.wallet) {
@@ -2064,57 +2140,51 @@ async fn api_relay_claim(
         ));
     }
 
-    let url = format!("{}/v1/relay-claim", cfg.pool_url.trim_end_matches('/'));
+    let url = format!(
+        "{}/v1/payout/{}",
+        cfg.pool_url.trim_end_matches('/'),
+        cfg.wallet
+    );
 
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(90))
+        .timeout(Duration::from_secs(45))
         .build()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-
-    let response = client
-        .post(url)
-        .json(&json!({
-            "wallet": cfg.wallet
-        }))
-        .send()
-        .await
         .map_err(|e| {
             (
-                StatusCode::BAD_GATEWAY,
-                format!("Could not reach Eureka claim relayer: {e}"),
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Could not create payout HTTP client: {e}"),
             )
         })?;
 
+    let response = client.get(url).send().await.map_err(|e| {
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("Could not reach Eureka automatic payout API: {e}"),
+        )
+    })?;
+
     let code = response.status();
+
     let raw = response.text().await.unwrap_or_default();
 
     if !code.is_success() {
-        let upstream_status =
-            StatusCode::from_u16(code.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
-
-        let message = serde_json::from_str::<Value>(&raw)
-            .ok()
-            .and_then(|v| {
-                v.get("error")
-                    .and_then(Value::as_str)
-                    .or_else(|| v.get("message").and_then(Value::as_str))
-                    .map(str::to_owned)
-            })
-            .unwrap_or_else(|| {
-                if raw.is_empty() {
-                    format!("Eureka claim relayer returned HTTP {}", code.as_u16())
-                } else {
-                    raw.clone()
-                }
-            });
-
-        return Err((upstream_status, message));
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            format!("Official payout API returned HTTP {}", code.as_u16()),
+        ));
     }
 
     let value: Value = serde_json::from_str(&raw).map_err(|e| {
         (
             StatusCode::BAD_GATEWAY,
-            format!("Invalid claim relayer JSON: {e}"),
+            format!("Invalid automatic payout JSON: {e}"),
+        )
+    })?;
+
+    validate_payout_payload(&value, &cfg.wallet).map_err(|e| {
+        (
+            StatusCode::BAD_GATEWAY,
+            format!("Invalid automatic payout response: {e}"),
         )
     })?;
 
@@ -2179,7 +2249,7 @@ async fn protect_dashboard(
 async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
-        println!("Eureka Nexus Miner {}\nUsage: eureka-nexus-miner-official [--help | --version]\nRun without arguments to open the local dashboard. Mining starts only from the dashboard.\nLinux config: $XDG_CONFIG_HOME/EurekaNexus/MinerOfficial1/miner-config.json (default ~/.config).\nWindows config: %APPDATA%\\EurekaNexus\\MinerOfficial1\\miner-config.json.", env!("CARGO_PKG_VERSION"));
+        println!("Eureka 2026 1.0 (technical version {})\nUsage: eureka-nexus-miner-official [--help | --version]\nRun without arguments to open the local dashboard. Mining starts only from the dashboard.\nLinux config: $XDG_CONFIG_HOME/EurekaNexus/MinerOfficial1/miner-config.json (default ~/.config).\nWindows config: %APPDATA%\\EurekaNexus\\MinerOfficial1\\miner-config.json.", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
     if args.len() == 1 && (args[0] == "--version" || args[0] == "-V") {
@@ -2217,8 +2287,8 @@ async fn main() -> Result<()> {
         .route("/api/config", get(api_config_get).post(api_config_save))
         .route("/api/start", post(api_start))
         .route("/api/stop", post(api_stop))
-        .route("/api/claim/:day", get(api_claim_info))
-        .route("/api/relay-claim", post(api_relay_claim))
+
+        .route("/api/payout", get(api_payout))
         .fallback(get(index_handler))
         .layer(middleware::from_fn_with_state(port, protect_dashboard))
         .with_state(state.clone());
@@ -2270,6 +2340,7 @@ mod update_tests {
             ("1.1.1", "v1.1.0", false),
             ("1.1.1", "v1.1.1", false),
             ("1.9.0", "v1.10.0", true),
+            ("1.1.3", "v2026.1.0", true),
             ("1.1.1-rc.1", "v1.1.1", true),
             ("1.1.1+local", "v1.1.1+release", false),
         ] {
@@ -2284,29 +2355,29 @@ mod update_tests {
                 update_metadata_for_platform(&release(invalid), "1.1.1", "windows-x86_64").is_err()
             );
         }
-        let mut draft = release("v1.2.0");
+        let mut draft = release("v2026.1.0");
         draft["draft"] = json!(true);
         assert!(update_metadata_for_platform(&draft, "1.1.1", "windows-x86_64").is_err());
     }
 
     #[test]
     fn assets_must_match_official_release() {
-        let mut data = release("v1.2.0");
+        let mut data = release("v2026.1.0");
 
-        let setup = "Eureka-Nexus-Miner-Setup-1.2.0.exe";
+        let setup = "Eureka-Nexus-Miner-Setup-2026.1.0.exe";
 
         let setup_sha = format!("{setup}.sha256.txt");
 
-        let zip = "Eureka-Nexus-Miner-Official-1.2.0-Windows-x86_64.zip";
+        let zip = "Eureka-Nexus-Miner-Official-2026.1.0-Windows-x86_64.zip";
 
         let zip_sha = format!("{zip}.sha256.txt");
 
-        let linux = "Eureka-Nexus-Miner-Official-1.2.0-Linux-x86_64.tar.gz";
+        let linux = "Eureka-Nexus-Miner-Official-2026.1.0-Linux-x86_64.tar.gz";
 
         let linux_sha = format!("{linux}.sha256.txt");
 
         let url = |name: &str| {
-            format!("https://github.com/Eureka-Nexus/eureka-miner/releases/download/v1.2.0/{name}")
+            format!("https://github.com/Eureka-Nexus/eureka-miner/releases/download/v2026.1.0/{name}")
         };
 
         data["assets"] = json!([
@@ -2357,7 +2428,7 @@ mod update_tests {
         assert!(windows["package_asset"].is_null());
 
         assert!(
-            update_metadata_for_platform(&release("v1.2.0"), "1.1.1", "linux-x86_64").unwrap()
+            update_metadata_for_platform(&release("v2026.1.0"), "1.1.1", "linux-x86_64").unwrap()
                 ["package_asset"]
                 .is_null()
         );
@@ -2421,5 +2492,78 @@ mod dashboard_origin_tests {
         headers.insert(header::HOST, "localhost:8077".parse().unwrap());
         headers.insert("sec-fetch-site", "cross-site".parse().unwrap());
         assert!(!dashboard_request_allowed(&headers, 8077));
+    }
+}
+
+#[cfg(test)]
+mod payout_api_contract_tests {
+    use super::*;
+
+    const TEST_WALLET: &str = "0x42f58c8a09bce3a00faf553aac60b0daf320858b";
+
+    fn valid_payload() -> Value {
+        json!({
+            "wallet": TEST_WALLET,
+            "chain_id": 56,
+            "token_contract": EKNX,
+            "automatic_payout": true,
+            "manual_claim_required": false,
+            "gas_paid_by": "eureka",
+            "status": "WAITING_SETTLEMENT",
+            "minimum_payout_wei": "5000000000000000000",
+            "payout_interval_hours": 4,
+            "next_automatic_check_utc":
+                "2026-10-07T20:30:00+00:00",
+            "total_mined_wei":
+                "8046974329616344523",
+            "published_entitlement_wei":
+                "7587745587266382862",
+            "paid_wei":
+                "7587745587266382862",
+            "available_for_payout_wei": "0",
+            "pending_settlement_wei":
+                "459228742349961661"
+        })
+    }
+
+    #[test]
+    fn accepts_valid_automatic_payout_payload() {
+        let value = valid_payload();
+
+        validate_payout_payload(&value, TEST_WALLET).expect("valid payout payload must pass");
+    }
+
+    #[test]
+    fn rejects_wrong_wallet() {
+        let value = valid_payload();
+
+        let error = validate_payout_payload(&value, "0x1111111111111111111111111111111111111111")
+            .expect_err("mismatched payout wallet must fail");
+
+        assert!(error.contains("wallet"),);
+    }
+
+    #[test]
+    fn rejects_manual_claim_model() {
+        let mut value = valid_payload();
+
+        value["manual_claim_required"] = Value::Bool(true);
+
+        let error =
+            validate_payout_payload(&value, TEST_WALLET).expect_err("manual claim model must fail");
+
+        assert!(error.contains("manual claim"),);
+    }
+
+    #[test]
+    fn rejects_inconsistent_payout_arithmetic() {
+        let mut value = valid_payload();
+
+        value["available_for_payout_wei"] = Value::String("1".into());
+
+        let error = validate_payout_payload(&value, TEST_WALLET)
+            .expect_err("invalid payout arithmetic must fail");
+
+        assert!(error.contains("arithmetic"),);
     }
 }

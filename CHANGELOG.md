@@ -1,5 +1,20 @@
 # Changelog
 
+## Eureka 2026 1.0 — technical version 2026.1.0
+
+- Introduce the public product identity **Eureka 2026 1.0**.
+- Replace manual EKNX claims with automatic server-paid payouts.
+- Remove the Miner claim button, Merkle-proof workflow and local claim/relay execution endpoints.
+- Add read-only payout status for total mined, already paid, eligible balance, pending settlement, next check and last payout transaction.
+- Production minimum automatic payout: **5 EKNX**.
+- Automatic payout eligibility check: **every 4 hours**.
+- Eureka Nexus pays the BSC transaction gas.
+- The Miner wallet remains a public receiving address only.
+- Preserve the Windows AppId and installation directory for upgrades from earlier versions.
+- Preserve updater-compatible asset filenames for existing Miners.
+- Require Windows and Linux x86-64 artifacts from the same technical version.
+- Preserve CPU RandomX, GPU KAWPOW, START/STOP and thermal-safety behavior.
+
 ## 1.1.2
 
 - Stop GPU and CPU mining automatically if the Windows desktop backend exits unexpectedly.

@@ -11,7 +11,23 @@ The Miner must never request, transmit or store:
 - treasury keys
 - operator signing keys
 
-Claim transactions are signed by the user's own browser wallet after explicit approval.
+The Miner never signs, requests or broadcasts EKNX payout transactions.
+
+Automatic EKNX payouts are executed by Eureka Nexus infrastructure and sent directly to the configured public BSC receiving address. Eureka Nexus pays the BSC transaction gas.
+
+## Automatic payout security
+
+The Miner exposes payout information as read-only status.
+
+There is no manual claim action and no local payout relay execution endpoint.
+
+The current production minimum automatic payout is **5 EKNX**.
+
+Eligibility is checked automatically **every 4 hours**.
+
+The Official Mining Server remains authoritative for payout state and policy.
+
+Never provide a private key, seed phrase or BNB payment to receive an EKNX mining payout.
 
 ## Local dashboard
 

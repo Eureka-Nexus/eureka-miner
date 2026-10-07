@@ -6,7 +6,7 @@
 #[cfg(not(target_os = "windows"))]
 fn main() {
     println!(
-        "Eureka Nexus Miner Desktop {} is for Windows.",
+        "Eureka 2026 1.0 (technical version {}) is for Windows.",
         env!("CARGO_PKG_VERSION")
     );
 }
@@ -386,7 +386,7 @@ mod app {
         let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
         let window = WindowBuilder::new()
-            .with_title(format!("Eureka Nexus Miner {}", env!("CARGO_PKG_VERSION")))
+            .with_title("Eureka 2026 1.0")
             .with_inner_size(LogicalSize::new(1180.0, 760.0))
             .with_min_inner_size(LogicalSize::new(820.0, 560.0))
             .with_window_icon(app_icon())
@@ -486,13 +486,13 @@ mod app {
                     Ok(Some(status)) => {
                         backend.shutdown();
 
-                        window.set_title("Eureka Nexus Miner - BACKEND STOPPED");
+                        window.set_title("Eureka 2026 1.0 - BACKEND STOPPED");
 
                         let message = format!(
                             "BACKEND INTERROMPIDO\n\n\
                              O processo principal terminou inesperadamente ({status}).\n\n\
                              A mineração GPU/CPU foi parada automaticamente por segurança.\n\
-                             Feche e volte a abrir o Eureka Nexus Miner."
+                             Feche e volte a abrir o Eureka 2026 1.0."
                         );
 
                         let script = format!(
@@ -509,13 +509,13 @@ mod app {
                     Err(error) => {
                         backend.shutdown();
 
-                        window.set_title("Eureka Nexus Miner - BACKEND ERROR");
+                        window.set_title("Eureka 2026 1.0 - BACKEND ERROR");
 
                         let message = format!(
                             "ERRO NO BACKEND\n\n\
                              Não foi possível verificar o processo principal: {error}\n\n\
                              A mineração GPU/CPU foi parada automaticamente por segurança.\n\
-                             Feche e volte a abrir o Eureka Nexus Miner."
+                             Feche e volte a abrir o Eureka 2026 1.0."
                         );
 
                         let script = format!(
@@ -557,7 +557,7 @@ mod app {
 #[cfg(target_os = "windows")]
 fn main() {
     if let Err(error) = app::run() {
-        let msg = format!("Eureka Nexus Miner error:\n{error:#}\n");
+        let msg = format!("Eureka 2026 1.0 error:\n{error:#}\n");
 
         let log_path = std::env::temp_dir().join("EurekaNexusMiner-startup.log");
 
