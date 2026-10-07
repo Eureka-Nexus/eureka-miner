@@ -83,7 +83,7 @@ begin
 end;
 
 [Run]
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -Command ""Start-Sleep -Seconds 3; Start-Process -FilePath '{app}\{#MyAppExeName}' -WorkingDirectory '{app}'"""; WorkingDir: "{app}"; Description: "Abrir Eureka 2026 1.0"; Flags: nowait postinstall runhidden
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -Command ""Start-Sleep -Seconds 3; Start-Process -FilePath '{app}\{#MyAppExeName}' -WorkingDirectory '{app}'"""; WorkingDir: "{app}"; Description: "Open Eureka 2026 1.0"; Flags: nowait postinstall runhidden
 
 [UninstallRun]
 Filename: "{cmd}"; Parameters: "/C taskkill /IM EurekaNexusMiner.exe /T /F"; Flags: runhidden; RunOnceId: "KillEurekaDesktop"
