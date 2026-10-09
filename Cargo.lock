@@ -702,7 +702,7 @@ dependencies = [
 
 [[package]]
 name = "eureka-nexus-miner-official"
-version = "2026.1.1"
+version = "2026.1.2"
 dependencies = [
  "anyhow",
  "axum",

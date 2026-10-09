@@ -1,6 +1,6 @@
 [package]
 name = "eureka-nexus-miner-official"
-version = "2026.1.1"
+version = "2026.1.2"
 edition = "2021"
 authors = ["Eureka Nexus"]
 description = "Eureka 2026 1.0 - BNB Smart Chain CPU/GPU mining client"

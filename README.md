@@ -2,7 +2,7 @@
 
 Official CPU/GPU miner for the Eureka Nexus (EKNX) ecosystem on BNB Smart Chain Mainnet.
 
-Technical release version: `2026.1.1`
+Technical release version: `2026.1.2`
 
 ## Official network
 
@@ -18,30 +18,30 @@ Technical release version: `2026.1.1`
 
 ## Download and install
 
-Download Eureka 2026 1.0 (technical version 2026.1.1) from [GitHub Releases](https://github.com/Eureka-Nexus/eureka-miner/releases). Windows and Linux x86-64 use the same Miner version. Always download the matching SHA-256 checksum together with the package and verify it before running the Miner.
+Download Eureka 2026 1.0 (technical version 2026.1.2) from [GitHub Releases](https://github.com/Eureka-Nexus/eureka-miner/releases). Windows and Linux x86-64 use the same Miner version. Always download the matching SHA-256 checksum together with the package and verify it before running the Miner.
 
 Linux x86-64:
 
 Download:
 
-`Eureka-Nexus-Miner-Official-2026.1.1-Linux-x86_64.tar.gz`
+`Eureka-Nexus-Miner-Official-2026.1.2-Linux-x86_64.tar.gz`
 
 and:
 
-`Eureka-Nexus-Miner-Official-2026.1.1-Linux-x86_64.tar.gz.sha256.txt`
+`Eureka-Nexus-Miner-Official-2026.1.2-Linux-x86_64.tar.gz.sha256.txt`
 
 Then verify and run:
 
 ```bash
-sha256sum -c Eureka-Nexus-Miner-Official-2026.1.1-Linux-x86_64.tar.gz.sha256.txt
-tar -xzf Eureka-Nexus-Miner-Official-2026.1.1-Linux-x86_64.tar.gz
-cd Eureka-Nexus-Miner-Official-2026.1.1-Linux-x86_64
+sha256sum -c Eureka-Nexus-Miner-Official-2026.1.2-Linux-x86_64.tar.gz.sha256.txt
+tar -xzf Eureka-Nexus-Miner-Official-2026.1.2-Linux-x86_64.tar.gz
+cd Eureka-Nexus-Miner-Official-2026.1.2-Linux-x86_64
 sha256sum -c SHA256SUMS.txt
 ./eureka-nexus-miner-official --version
 ./eureka-nexus-miner-official
 ```
 
-Windows x86-64: download and run `Eureka-Nexus-Miner-Setup-2026.1.1.exe`. The installer creates the Eureka Nexus Miner application and shortcuts automatically.
+Windows x86-64: download and run `Eureka-Nexus-Miner-Setup-2026.1.2.exe`. The installer creates the Eureka Nexus Miner application and shortcuts automatically.
 
 Open `http://127.0.0.1:8077`, configure your public BSC wallet and select CPU, GPU or BOTH. No mining begins merely by opening the dashboard. The on-chain mining activation gate must be open before mining can start.
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## Eureka 2026 1.0 — technical version 2026.1.2
+
+- Keep **Eureka 2026 1.0** as the commercial product name.
+- Make technical version **v2026.1.2** permanently visible in the main Miner header.
+- Show the technical version in the native Windows application title.
+- Show the technical version in backend stopped/error window titles.
+- Update package metadata, public metadata, README, updater tests and Windows installer to 2026.1.2.
+- Preserve Genesis Market, CPU/GPU mining, automatic payouts, updater rules and thermal-safety behavior unchanged.
+
+
 ## Eureka 2026 1.0 — technical version 2026.1.1
 
 - Update the Miner dashboard for the live EKNX Genesis Market.

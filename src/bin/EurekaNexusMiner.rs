@@ -386,7 +386,7 @@ mod app {
         let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
         let window = WindowBuilder::new()
-            .with_title("Eureka 2026 1.0")
+            .with_title(format!("Eureka 2026 1.0 · v{}", env!("CARGO_PKG_VERSION")))
             .with_inner_size(LogicalSize::new(1180.0, 760.0))
             .with_min_inner_size(LogicalSize::new(820.0, 560.0))
             .with_window_icon(app_icon())
@@ -486,7 +486,7 @@ mod app {
                     Ok(Some(status)) => {
                         backend.shutdown();
 
-                        window.set_title("Eureka 2026 1.0 - BACKEND STOPPED");
+                        window.set_title(&format!("Eureka 2026 1.0 · v{} - BACKEND STOPPED", env!("CARGO_PKG_VERSION")));
 
                         let message = format!(
                             "BACKEND INTERROMPIDO\n\n\
@@ -509,7 +509,7 @@ mod app {
                     Err(error) => {
                         backend.shutdown();
 
-                        window.set_title("Eureka 2026 1.0 - BACKEND ERROR");
+                        window.set_title(&format!("Eureka 2026 1.0 · v{} - BACKEND ERROR", env!("CARGO_PKG_VERSION")));
 
                         let message = format!(
                             "ERRO NO BACKEND\n\n\
