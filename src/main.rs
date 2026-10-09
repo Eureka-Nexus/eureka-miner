@@ -2341,6 +2341,8 @@ mod update_tests {
             ("1.1.1", "v1.1.1", false),
             ("1.9.0", "v1.10.0", true),
             ("1.1.3", "v2026.1.0", true),
+            ("2026.1.0", "v2026.1.1", true),
+            ("2026.1.1", "v2026.1.1", false),
             ("1.1.1-rc.1", "v1.1.1", true),
             ("1.1.1+local", "v1.1.1+release", false),
         ] {
@@ -2355,29 +2357,29 @@ mod update_tests {
                 update_metadata_for_platform(&release(invalid), "1.1.1", "windows-x86_64").is_err()
             );
         }
-        let mut draft = release("v2026.1.0");
+        let mut draft = release("v2026.1.1");
         draft["draft"] = json!(true);
         assert!(update_metadata_for_platform(&draft, "1.1.1", "windows-x86_64").is_err());
     }
 
     #[test]
     fn assets_must_match_official_release() {
-        let mut data = release("v2026.1.0");
+        let mut data = release("v2026.1.1");
 
-        let setup = "Eureka-Nexus-Miner-Setup-2026.1.0.exe";
+        let setup = "Eureka-Nexus-Miner-Setup-2026.1.1.exe";
 
         let setup_sha = format!("{setup}.sha256.txt");
 
-        let zip = "Eureka-Nexus-Miner-Official-2026.1.0-Windows-x86_64.zip";
+        let zip = "Eureka-Nexus-Miner-Official-2026.1.1-Windows-x86_64.zip";
 
         let zip_sha = format!("{zip}.sha256.txt");
 
-        let linux = "Eureka-Nexus-Miner-Official-2026.1.0-Linux-x86_64.tar.gz";
+        let linux = "Eureka-Nexus-Miner-Official-2026.1.1-Linux-x86_64.tar.gz";
 
         let linux_sha = format!("{linux}.sha256.txt");
 
         let url = |name: &str| {
-            format!("https://github.com/Eureka-Nexus/eureka-miner/releases/download/v2026.1.0/{name}")
+            format!("https://github.com/Eureka-Nexus/eureka-miner/releases/download/v2026.1.1/{name}")
         };
 
         data["assets"] = json!([
@@ -2428,7 +2430,7 @@ mod update_tests {
         assert!(windows["package_asset"].is_null());
 
         assert!(
-            update_metadata_for_platform(&release("v2026.1.0"), "1.1.1", "linux-x86_64").unwrap()
+            update_metadata_for_platform(&release("v2026.1.1"), "1.1.1", "linux-x86_64").unwrap()
                 ["package_asset"]
                 .is_null()
         );

@@ -1,5 +1,15 @@
 # Changelog
 
+## Eureka 2026 1.0 — technical version 2026.1.1
+
+- Update the Miner dashboard for the live EKNX Genesis Market.
+- Replace the obsolete pre-launch Market banner with the live on-chain status.
+- Publish the correct Genesis allocation: 650,000 EKNX for the bonding curve and 350,000 EKNX reserved for DEX liquidity.
+- Display the 25 BNB graduation target.
+- Add direct access to the official Genesis Market interface at eurekanexus.pt.
+- Keep DEX trading explicitly marked as inactive until graduation.
+- Preserve CPU/GPU mining, automatic payouts, updater behavior and thermal-safety rules unchanged.
+
 ## Eureka 2026 1.0 — technical version 2026.1.0
 
 - Introduce the public product identity **Eureka 2026 1.0**.
